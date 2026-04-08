@@ -1,0 +1,33 @@
+# Entorno virtual
+.venv/
+
+# Base de datos local (datos del negocio — nunca se sube)
+db/vinoteca.db
+db/*.db-shm
+db/*.db-wal
+
+# Exportaciones generadas
+exports/
+
+# Compilados de PyInstaller
+dist/
+build/
+*.spec.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+
+# Assets generados (se regeneran con crear_icono.py)
+assets/icon.ico
+assets/icon.png
+assets/icon.icns
+assets/icon.iconset/
+
+# Logs
+*.log
