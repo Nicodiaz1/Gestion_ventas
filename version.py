@@ -8,4 +8,4 @@
 #  y avisará automáticamente si hay versión nueva.
 # ─────────────────────────────────────────────────────────────
 
-VERSION_ACTUAL = "1.2"
+VERSION_ACTUAL = "1.3"
