@@ -1,6 +1,9 @@
 # ─────────────────────────────────────────────────────────────
 #  ui/styles.py  –  Estilos y paleta centralizada
 # ─────────────────────────────────────────────────────────────
+import os as _os
+_ASSETS = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "assets")
+_ARROW  = _os.path.join(_ASSETS, "arrow_down.svg").replace("\\", "/")
 
 STYLESHEET = """
 QMainWindow, QDialog, QWidget {
@@ -88,6 +91,25 @@ QPushButton#btn_grande {
     border-radius: 10px;
 }
 
+QPushButton#btn_periodo_activo {
+    background-color: #4A1A20;
+    border: 2px solid #722F37;
+    color: #F5D0D5;
+    font-weight: 700;
+    padding: 6px 14px;
+    font-size: 11pt;
+}
+QPushButton#btn_periodo_activo:hover { background-color: #5C2228; }
+
+QPushButton#btn_secundario_compacto {
+    background-color: #2C2C2C;
+    border: 1px solid #555;
+    color: #F5F5F5;
+    padding: 6px 14px;
+    font-size: 11pt;
+}
+QPushButton#btn_secundario_compacto:hover { background-color: #3C3C3C; }
+
 /* ── Inputs ────────────────────────────────────────────── */
 QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
     background-color: #2C2C2C;
@@ -143,6 +165,21 @@ QTableWidget::indicator:checked {
 }
 QTableWidget::indicator:checked:hover { background: #8B3540; }
 QTableWidget::indicator:unchecked:hover { border-color: #BBB; background: #383838; }
+
+/* ── QCheckBox (formularios de diálogos) ────────────────── */
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 2px solid #888;
+    border-radius: 3px;
+    background: #2A2A2A;
+}
+QCheckBox::indicator:checked {
+    background: #722F37;
+    border-color: #9E3A43;
+    image: none;
+}
+QCheckBox::indicator:checked:hover { background: #8B3540; }
+QCheckBox::indicator:unchecked:hover { border-color: #BBB; background: #383838; }
 
 /* ── Lista (buscador y otros QListWidget) ─────────────── */
 QListWidget {
@@ -234,6 +271,79 @@ QDateEdit {
     padding: 6px 10px;
     color: #F5F5F5;
 }
+QDateEdit::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 28px;
+    border-left: 1px solid #555;
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+    background-color: #3C3C3C;
+}
+QDateEdit::drop-down:hover {
+    background-color: #722F37;
+}
+QDateEdit::down-arrow {
+    image: none;
+    width: 0;
+    height: 0;
+}
+
+/* ── CalendarWidget ────────────────────────────────────── */
+QCalendarWidget {
+    background-color: #1E1E1E;
+    color: #F5F5F5;
+}
+/* Barra de navegación (mes / año + flechas) */
+QCalendarWidget QWidget#qt_calendar_navigationbar {
+    background-color: #2C2C2C;
+    border-bottom: 1px solid #444;
+    padding: 4px 2px;
+}
+/* Botones de flecha ‹ › */
+QCalendarWidget QToolButton {
+    background-color: #3C3C3C;
+    color: #F5F5F5;
+    border: 1px solid #555;
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 12pt;
+    font-weight: 700;
+    min-width: 28px;
+    min-height: 28px;
+}
+QCalendarWidget QToolButton:hover {
+    background-color: #722F37;
+    border-color: #922F37;
+}
+QCalendarWidget QToolButton::menu-indicator {
+    image: none;
+}
+/* Spinbox del año */
+QCalendarWidget QSpinBox {
+    background-color: #2C2C2C;
+    color: #F5F5F5;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11pt;
+}
+/* Cabecera con días de semana */
+QCalendarWidget QWidget { alternate-background-color: #252525; }
+QCalendarWidget QAbstractItemView {
+    background-color: #1E1E1E;
+    color: #F5F5F5;
+    selection-background-color: #722F37;
+    selection-color: white;
+    gridline-color: #333;
+    outline: none;
+}
+QCalendarWidget QAbstractItemView:enabled {
+    color: #F5F5F5;
+}
+QCalendarWidget QAbstractItemView:disabled {
+    color: #555;
+}
 
 /* ── GroupBox ──────────────────────────────────────────── */
 QGroupBox {
@@ -253,4 +363,10 @@ QGroupBox::title {
 /* ── MessageBox ────────────────────────────────────────── */
 QMessageBox { background-color: #2C2C2C; }
 QMessageBox QPushButton { min-width: 80px; }
+""" + f"""
+QDateEdit::down-arrow {{
+    image: url({_ARROW});
+    width: 10px;
+    height: 6px;
+}}
 """

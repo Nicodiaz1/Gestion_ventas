@@ -259,6 +259,27 @@ def init_db():
             conn.execute(
                 "ALTER TABLE facturas_proveedores ADD COLUMN dias_alerta INTEGER NOT NULL DEFAULT 7")
             print("[DB] Migración: columna dias_alerta agregada a facturas_proveedores.")
+        # Migración: columna lote_id en detalle_ventas
+        cols_dv = [r[1] for r in conn.execute(
+            "PRAGMA table_info(detalle_ventas)").fetchall()]
+        if "lote_id" not in cols_dv:
+            conn.execute(
+                "ALTER TABLE detalle_ventas ADD COLUMN lote_id INTEGER REFERENCES lotes(id)")
+            print("[DB] Migración: columna lote_id agregada a detalle_ventas.")
+        # Migración: tabla gastos
+        if "gastos" not in tablas:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS gastos (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fecha       DATE    NOT NULL,
+                    categoria   TEXT    NOT NULL DEFAULT 'Otro',
+                    descripcion TEXT    NOT NULL,
+                    monto       REAL    NOT NULL DEFAULT 0,
+                    creado_en   DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha);
+            """)
+            print("[DB] Migración: tabla gastos creada.")
     print(f"[DB] Base de datos inicializada en: {DB_PATH}")
 
 
@@ -480,21 +501,50 @@ def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
         for item in items:
             sub_item = item["cantidad"] * item["precio_unit"]
             conn.execute("""
-                INSERT INTO detalle_ventas (venta_id, producto_id, cantidad, precio_unit, subtotal)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO detalle_ventas (venta_id, producto_id, cantidad, precio_unit, subtotal, lote_id)
+                VALUES (?, ?, ?, ?, ?, ?)
             """, (venta_id, item["producto_id"], item["cantidad"],
-                  item["precio_unit"], sub_item))
+                  item["precio_unit"], sub_item, item.get("lote_id")))
 
-            # Descontar stock
+            # Descontar stock (puede quedar negativo intencionalmente)
             row = conn.execute("SELECT stock_actual FROM productos WHERE id = ?",
                                (item["producto_id"],)).fetchone()
             stock_ant = row["stock_actual"]
-            stock_nuevo = max(0, stock_ant - item["cantidad"])
+            stock_nuevo = stock_ant - item["cantidad"]   # permite negativos
             conn.execute("UPDATE productos SET stock_actual = ?, modificado_en = ? WHERE id = ?",
                          (stock_nuevo, ahora.isoformat(), item["producto_id"]))
             _registrar_movimiento_conn(conn, item["producto_id"], "salida",
                                        item["cantidad"], stock_ant, stock_nuevo,
                                        "Venta", venta_id)
+
+            # Descontar de lotes: si viene lote_id específico úsalo, si no FIFO
+            lote_id = item.get("lote_id")
+            restante = item["cantidad"]
+            if lote_id:
+                fila = conn.execute(
+                    "SELECT id, cantidad FROM lotes WHERE id = ?", (lote_id,)).fetchone()
+                if fila:
+                    nueva_cant = max(0, fila["cantidad"] - restante)
+                    conn.execute("UPDATE lotes SET cantidad = ? WHERE id = ?",
+                                 (nueva_cant, lote_id))
+            else:
+                # FIFO: descontar por cosecha más antigua con cantidad > 0
+                lotes_fifo = conn.execute("""
+                    SELECT id, cantidad FROM lotes
+                    WHERE producto_id = ? AND cantidad > 0
+                    ORDER BY
+                        CASE WHEN cosecha IS NULL THEN 1 ELSE 0 END,
+                        cosecha ASC,
+                        CASE WHEN fecha_vencimiento IS NULL THEN 1 ELSE 0 END,
+                        fecha_vencimiento ASC
+                """, (item["producto_id"],)).fetchall()
+                for lote in lotes_fifo:
+                    if restante <= 0:
+                        break
+                    quitar = min(restante, lote["cantidad"])
+                    conn.execute("UPDATE lotes SET cantidad = ? WHERE id = ?",
+                                 (lote["cantidad"] - quitar, lote["id"]))
+                    restante -= quitar
 
         # Actualizar caja diaria
         _actualizar_caja(conn, ahora.date().isoformat(), medio_pago, total)
@@ -557,11 +607,16 @@ def obtener_venta(venta_id: int) -> Optional[sqlite3.Row]:
 
 def detalle_venta(venta_id: int) -> list:
     with get_connection() as conn:
-        return conn.execute("""
-            SELECT dv.*, p.nombre, p.codigo_barras
-            FROM detalle_ventas dv JOIN productos p ON p.id = dv.producto_id
+        items = conn.execute("""
+            SELECT dv.*, p.nombre, p.codigo_barras, p.unidad,
+                   l.cosecha
+            FROM detalle_ventas dv
+            JOIN productos p ON p.id = dv.producto_id
+            LEFT JOIN lotes l ON l.id = dv.lote_id
             WHERE dv.venta_id = ?
         """, (venta_id,)).fetchall()
+        venta = conn.execute("SELECT * FROM ventas WHERE id = ?", (venta_id,)).fetchone()
+        return {"items": items, "venta": venta}
 
 
 def ventas_del_dia(fecha: str = None) -> list:
@@ -934,6 +989,16 @@ def crear_lote(producto_id: int, cantidad: int,
         return cur.lastrowid
 
 
+def actualizar_lote(lote_id: int, cosecha: int = None, fecha_vencimiento: str = None) -> None:
+    """Actualiza cosecha y/o fecha de vencimiento de un lote existente."""
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE lotes
+            SET cosecha = ?, fecha_vencimiento = ?
+            WHERE id = ?
+        """, (cosecha, fecha_vencimiento, lote_id))
+
+
 def obtener_lotes_producto(producto_id: int) -> list:
     """Lotes activos (cantidad > 0) de un producto, ordenados por cosecha y vencimiento."""
     with get_connection() as conn:
@@ -982,3 +1047,95 @@ def actualizar_cantidad_lote(lote_id: int, nueva_cantidad: int):
         conn.execute("UPDATE lotes SET cantidad = ? WHERE id = ?",
                      (nueva_cantidad, lote_id))
 
+
+# ══════════════════════════════════════════════════════════════
+#  GASTOS OPERATIVOS
+# ══════════════════════════════════════════════════════════════
+
+CATEGORIAS_GASTO = [
+    "Servicios (Luz/Agua/Gas)",
+    "Impuestos / Municipalidad",
+    "Comisiones Posnet / Tarjetas",
+    "Alquiler",
+    "Sueldos / Personal",
+    "Obra / Mejora",
+    "Otro",
+]
+
+
+def registrar_gasto(fecha: str, categoria: str, descripcion: str, monto: float) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO gastos (fecha, categoria, descripcion, monto) VALUES (?, ?, ?, ?)",
+            (fecha, categoria, descripcion, monto))
+        return cur.lastrowid
+
+
+def eliminar_gasto(gasto_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM gastos WHERE id = ?", (gasto_id,))
+
+
+def obtener_gastos_periodo(desde: str, hasta: str) -> list:
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT * FROM gastos
+            WHERE fecha BETWEEN ? AND ?
+            ORDER BY fecha DESC, id DESC
+        """, (desde, hasta)).fetchall()
+
+
+def resumen_finanzas_periodo(desde: str, hasta: str) -> dict:
+    """Devuelve ingresos por medio de pago, costo estimado, gastos y margen del período."""
+    with get_connection() as conn:
+        # Ingresos de ventas
+        r = conn.execute("""
+            SELECT
+                COALESCE(SUM(total), 0)        as ingresos,
+                COALESCE(SUM(descuento), 0)    as descuentos,
+                COUNT(*)                        as n_ventas,
+                COALESCE(SUM(CASE WHEN medio_pago='efectivo'     THEN total ELSE 0 END), 0) as efectivo,
+                COALESCE(SUM(CASE WHEN medio_pago='debito'       THEN total ELSE 0 END), 0) as debito,
+                COALESCE(SUM(CASE WHEN medio_pago='credito'      THEN total ELSE 0 END), 0) as credito,
+                COALESCE(SUM(CASE WHEN medio_pago='transferencia' THEN total ELSE 0 END), 0) as transferencia,
+                COALESCE(SUM(CASE WHEN medio_pago='qr'           THEN total ELSE 0 END), 0) as qr
+            FROM ventas WHERE fecha BETWEEN ? AND ? AND anulada = 0
+        """, (desde, hasta)).fetchone()
+
+        # Costo estimado (costo unitario × cantidad vendida)
+        costo = conn.execute("""
+            SELECT COALESCE(SUM(p.precio_costo * dv.cantidad), 0) as costo_total
+            FROM detalle_ventas dv
+            JOIN ventas v ON v.id = dv.venta_id
+            JOIN productos p ON p.id = dv.producto_id
+            WHERE v.fecha BETWEEN ? AND ? AND v.anulada = 0
+        """, (desde, hasta)).fetchone()["costo_total"]
+
+        # Gastos operativos
+        gastos_rows = conn.execute("""
+            SELECT COALESCE(SUM(monto), 0) as total_gastos FROM gastos
+            WHERE fecha BETWEEN ? AND ?
+        """, (desde, hasta)).fetchone()
+
+        ingresos = r["ingresos"]
+        total_gastos = gastos_rows["total_gastos"]
+        margen_bruto = ingresos - costo
+        margen_neto  = margen_bruto - total_gastos
+
+        return {
+            "ingresos":         ingresos,
+            "descuentos":       r["descuentos"],
+            "n_ventas":         r["n_ventas"],
+            "costo_estimado":   costo,
+            "margen_bruto":     margen_bruto,
+            "gastos_operativos": total_gastos,
+            "margen_neto":      margen_neto,
+            "pct_margen_neto":  (margen_neto / ingresos * 100) if ingresos else 0,
+            "por_medio": {
+                "efectivo":      r["efectivo"],
+                "debito":        r["debito"],
+                "credito":       r["credito"],
+                "transferencia": r["transferencia"],
+                "qr":            r["qr"],
+            }
+        }

@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import QToolTip
+from PyQt6.QtGui import QCursor
 import sys, os
 from datetime import date, timedelta
 
@@ -336,16 +338,6 @@ class CuentasProveedorWidget(QWidget):
         self.resumen_row = QHBoxLayout()
         lay.addLayout(self.resumen_row)
 
-        # ── Alertas de vencimiento ────────────────────────────
-        self.lbl_alerta = QLabel("")
-        self.lbl_alerta.setWordWrap(True)
-        self.lbl_alerta.setStyleSheet(
-            "color:#F44336; font-weight:700; font-size:11pt; "
-            "background:#2A0000; border-radius:6px; padding:8px 12px;"
-        )
-        self.lbl_alerta.setVisible(False)
-        lay.addWidget(self.lbl_alerta)
-
         # ── Tabs ──────────────────────────────────────────────
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -380,7 +372,20 @@ class CuentasProveedorWidget(QWidget):
         tab_todas.setLayout(lay_todas)
         self.tabs.addTab(tab_todas, "📋  Todas las facturas")
 
-        # Tab 2: Resumen por proveedor
+        # Tab 2: Por vencer
+        tab_vencer = QWidget()
+        lay_vencer = QVBoxLayout(tab_vencer)
+        lay_vencer.setSpacing(6)
+        self.lbl_vencer_header = QLabel("")
+        self.lbl_vencer_header.setStyleSheet(
+            "color:#FF9800; font-weight:700; font-size:10pt; padding:4px 0;")
+        lay_vencer.addWidget(self.lbl_vencer_header)
+        self.tabla_por_vencer = self._crear_tabla_facturas()
+        lay_vencer.addWidget(self.tabla_por_vencer, 1)
+        tab_vencer.setLayout(lay_vencer)
+        self.tabs.addTab(tab_vencer, "⏰  Por vencer")
+
+        # Tab 3: Resumen por proveedor
         tab_resumen = QWidget()
         lay_res = QVBoxLayout(tab_resumen)
         self.tabla_resumen = QTableWidget(0, 5)
@@ -399,7 +404,7 @@ class CuentasProveedorWidget(QWidget):
         tab_resumen.setLayout(lay_res)
         self.tabs.addTab(tab_resumen, "📊  Resumen por proveedor")
 
-        # Tab 3: Análisis de compras
+        # Tab 4: Análisis de compras
         tab_analisis = self._build_tab_analisis()
         self.tabs.addTab(tab_analisis, "📈  Análisis de compras")
 
@@ -412,14 +417,19 @@ class CuentasProveedorWidget(QWidget):
             "Proveedor", "N° Factura", "Descripción",
             "Total", "Pagado", "Saldo", "Vencimiento", "Acciones"
         ])
-        tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        tabla.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        hdr = tabla.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Proveedor
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)            # N° Factura
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)              # Descripción
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Total
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Pagado
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Saldo
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Vencimiento
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)              # Acciones
+        tabla.setColumnHidden(2, True)
+        tabla.setColumnWidth(7, 295)
+        tabla.cellDoubleClicked.connect(
+            lambda row, col, t=tabla: self._mostrar_descripcion(t, row, col))
         tabla.setAlternatingRowColors(True)
         tabla.verticalHeader().setVisible(False)
         tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -474,22 +484,104 @@ class CuentasProveedorWidget(QWidget):
 
     def _actualizar_alertas(self):
         por_vencer = db.facturas_por_vencer()
+        # Ordenar por fecha de vencimiento ascendente (más próxima primero)
+        por_vencer = sorted(por_vencer, key=lambda f: str(f["fecha_vencimiento"] or ""))
+
+        # Actualizar ícono de la tab
+        idx_tab = 1
         if por_vencer:
-            msgs = []
-            for f in por_vencer[:5]:
-                dias = (date.fromisoformat(str(f["fecha_vencimiento"])[:10]) - date.today()).days
-                avisar_en = f["dias_alerta"] if "dias_alerta" in f.keys() else 7
-                msgs.append(
-                    f"• {f['proveedor_nombre'] or 'Proveedor'} — "
-                    f"Factura {f['numero_factura'] or 'S/N'} — "
-                    f"Saldo $ {f['saldo']:,.2f} — "
-                    f"Vence en {dias} día(s)  [⏰ alerta a {avisar_en}d]"
-                )
-            self.lbl_alerta.setText(
-                "⚠️  FACTURAS POR VENCER:\n" + "\n".join(msgs))
-            self.lbl_alerta.setVisible(True)
+            self.tabs.setTabText(idx_tab, f"⏰  Por vencer ({len(por_vencer)})")
         else:
-            self.lbl_alerta.setVisible(False)
+            self.tabs.setTabText(idx_tab, "⏰  Por vencer")
+
+        # Llenar tabla
+        self.tabla_por_vencer.setRowCount(len(por_vencer))
+        for i, f in enumerate(por_vencer):
+            dias = (date.fromisoformat(str(f["fecha_vencimiento"])[:10]) - date.today()).days
+            avisar_en = f["dias_alerta"] if "dias_alerta" in f.keys() else 7
+
+            color = "#FF4444" if dias <= 1 else ("#FF9800" if dias <= 3 else "#C9A84C")
+
+            def cell(txt, bold=False):
+                it = QTableWidgetItem(txt)
+                if bold:
+                    it.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+                it.setForeground(QColor(color))
+                return it
+
+            self.tabla_por_vencer.setItem(i, 0, cell(f["proveedor_nombre"] or "—", bold=True))
+            nro_item_v = cell(f["numero_factura"] or "S/N")
+            desc_v = f["descripcion"] or ""
+            nro_item_v.setData(Qt.ItemDataRole.UserRole, desc_v)
+            nro_item_v.setData(Qt.ItemDataRole.UserRole + 1, dict(f))
+            nro_item_v.setToolTip("Doble clic para ver detalle")
+            self.tabla_por_vencer.setItem(i, 1, nro_item_v)
+            self.tabla_por_vencer.setItem(i, 2, cell(desc_v))
+            self.tabla_por_vencer.setItem(i, 3, cell(f"$ {f['monto_total']:,.2f}"))
+            self.tabla_por_vencer.setItem(i, 4, cell(f"$ {f['monto_pagado']:,.2f}"))
+            self.tabla_por_vencer.setItem(i, 5, cell(f"$ {f['saldo']:,.2f}", bold=True))
+            venc_txt = f"{f['fecha_vencimiento'][:10]}  "
+            if dias < 0:
+                venc_txt += f"🔴 vencida hace {abs(dias)}d"
+            elif dias == 0:
+                venc_txt += "🔴 vence HOY"
+            else:
+                venc_txt += f"⏰ en {dias}d  (alerta a {avisar_en}d)"
+            self.tabla_por_vencer.setItem(i, 6, cell(venc_txt, bold=(dias <= 1)))
+
+            # Botones de acción — igual que en la tabla principal
+            fdict_v = dict(f)
+            acc_v = QWidget()
+            acc_lay_v = QHBoxLayout(acc_v)
+            acc_lay_v.setContentsMargins(8, 4, 8, 4)
+            acc_lay_v.setSpacing(8)
+
+            if f["estado"] in ("pendiente", "vencida"):
+                btn_pagar_v = QPushButton("💳  Pagar")
+                btn_pagar_v.setFixedHeight(32)
+                btn_pagar_v.setMinimumWidth(90)
+                btn_pagar_v.setStyleSheet(
+                    "QPushButton{background:#2E7D32;color:white;border-radius:6px;"
+                    "font-size:10pt;padding:0 14px;}"
+                    "QPushButton:hover{background:#388E3C;}"
+                )
+                btn_pagar_v.clicked.connect(
+                    lambda _, fd=fdict_v: self._pagar_factura(fd))
+                acc_lay_v.addWidget(btn_pagar_v)
+
+            btn_edit_v = QPushButton("✏️  Editar")
+            btn_edit_v.setFixedHeight(32)
+            btn_edit_v.setMinimumWidth(85)
+            btn_edit_v.setStyleSheet(
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
+                "color:#F5F5F5;font-size:10pt;padding:0 12px;}"
+                "QPushButton:hover{background:#3C3C3C;}"
+            )
+            btn_edit_v.clicked.connect(lambda _, fd=fdict_v: self._editar_factura(fd))
+            acc_lay_v.addWidget(btn_edit_v)
+
+            btn_del_v = QPushButton("🗑  Borrar")
+            btn_del_v.setFixedHeight(32)
+            btn_del_v.setMinimumWidth(85)
+            btn_del_v.setStyleSheet(
+                "QPushButton{background:#7F0000;color:white;border-radius:6px;"
+                "font-size:10pt;padding:0 12px;}"
+                "QPushButton:hover{background:#B71C1C;}"
+            )
+            btn_del_v.clicked.connect(lambda _, fd=fdict_v: self._eliminar_factura(fd))
+            acc_lay_v.addWidget(btn_del_v)
+
+            self.tabla_por_vencer.setCellWidget(i, 7, acc_v)
+            self.tabla_por_vencer.setRowHeight(i, 48)
+
+        n = len(por_vencer)
+        if n:
+            self.lbl_vencer_header.setText(
+                f"{n} factura(s) próximas a vencer — ordenadas de más urgente a menos urgente")
+        else:
+            self.lbl_vencer_header.setText("✅  No hay facturas próximas a vencer")
+            self.lbl_vencer_header.setStyleSheet(
+                "color:#4CAF50; font-weight:700; font-size:10pt; padding:4px 0;")
 
     def _filtrar_facturas(self):
         estado     = self.cmb_filtro_estado.currentData()
@@ -498,16 +590,96 @@ class CuentasProveedorWidget(QWidget):
             proveedor_id=prov_id, estado=estado)
         self._mostrar_facturas(facturas)
 
+    def _mostrar_descripcion(self, tabla, row, col):
+        if col != 1:
+            return
+        item = tabla.item(row, 1)
+        if not item:
+            return
+        fdict = item.data(Qt.ItemDataRole.UserRole + 1)
+        if not fdict:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Detalle de factura")
+        dlg.setMinimumWidth(420)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 20, 20, 20)
+
+        def _fila(etiqueta, valor, color=None, bold=False):
+            row_w = QWidget()
+            row_h = QHBoxLayout(row_w)
+            row_h.setContentsMargins(0, 0, 0, 0)
+            lbl_e = QLabel(etiqueta)
+            lbl_e.setStyleSheet("color:#888;font-size:9pt;min-width:140px;")
+            lbl_v = QLabel(str(valor) if valor else "—")
+            style = "font-size:10pt;"
+            if color:
+                style += f"color:{color};"
+            if bold:
+                style += "font-weight:700;"
+            lbl_v.setStyleSheet(style)
+            row_h.addWidget(lbl_e)
+            row_h.addWidget(lbl_v, 1)
+            lay.addWidget(row_w)
+
+        # Separador superior
+        prov = fdict.get("proveedor_nombre") or "—"
+        nro = fdict.get("numero_factura") or "S/N"
+        titulo = QLabel(f"{prov}  ·  Factura {nro}")
+        titulo.setStyleSheet("font-size:13pt;font-weight:700;color:#C9A84C;")
+        lay.addWidget(titulo)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color:#444;")
+        lay.addWidget(sep)
+
+        _fila("Descripción:",       fdict.get("descripcion"))
+        _fila("Fecha emisión:",     fdict.get("fecha_emision", "")[:10] if fdict.get("fecha_emision") else None)
+        _fila("Fecha vencimiento:", fdict.get("fecha_vencimiento", "")[:10] if fdict.get("fecha_vencimiento") else None)
+        _fila("Estado:",            (fdict.get("estado") or "").capitalize())
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet("color:#444;")
+        lay.addWidget(sep2)
+
+        total = fdict.get("monto_total") or 0
+        pagado = fdict.get("monto_pagado") or 0
+        saldo = fdict.get("saldo") or (total - pagado)
+        saldo_color = "#4CAF50" if saldo <= 0 else ("#F44336" if saldo == total else "#FF9800")
+
+        _fila("Total factura:",     f"$ {total:,.2f}")
+        _fila("Monto pagado:",      f"$ {pagado:,.2f}", color="#4CAF50")
+        _fila("Saldo pendiente:",   f"$ {saldo:,.2f}", color=saldo_color, bold=True)
+
+        lay.addSpacing(8)
+        btn_cerrar = QPushButton("Cerrar")
+        btn_cerrar.setFixedHeight(34)
+        btn_cerrar.setStyleSheet(
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
+            "color:#F5F5F5;font-size:10pt;padding:0 20px;}"
+            "QPushButton:hover{background:#3C3C3C;}"
+        )
+        btn_cerrar.clicked.connect(dlg.accept)
+        lay.addWidget(btn_cerrar, alignment=Qt.AlignmentFlag.AlignRight)
+        dlg.exec()
+
     def _mostrar_facturas(self, facturas: list):
         self.tabla_facturas.setRowCount(len(facturas))
         hoy = date.today()
         for i, f in enumerate(facturas):
             self.tabla_facturas.setItem(i, 0, QTableWidgetItem(
                 f["proveedor_nombre"] or "Sin proveedor"))
-            self.tabla_facturas.setItem(i, 1, QTableWidgetItem(
-                f["numero_factura"] or "—"))
-            self.tabla_facturas.setItem(i, 2, QTableWidgetItem(
-                f["descripcion"] or ""))
+            nro_item = QTableWidgetItem(f["numero_factura"] or "—")
+            desc = f["descripcion"] or ""
+            nro_item.setData(Qt.ItemDataRole.UserRole, desc)
+            nro_item.setData(Qt.ItemDataRole.UserRole + 1, dict(f))
+            nro_item.setToolTip("Doble clic para ver detalle")
+            self.tabla_facturas.setItem(i, 1, nro_item)
+            self.tabla_facturas.setItem(i, 2, QTableWidgetItem(desc))
 
             def _c(val, color=None, bold=False):
                 it = QTableWidgetItem(str(val))
@@ -553,43 +725,48 @@ class CuentasProveedorWidget(QWidget):
             # ── Botones de acción ─────────────────────────────
             acc = QWidget()
             acc_lay = QHBoxLayout(acc)
-            acc_lay.setContentsMargins(4, 2, 4, 2)
-            acc_lay.setSpacing(4)
+            acc_lay.setContentsMargins(8, 4, 8, 4)
+            acc_lay.setSpacing(8)
 
             fdict = dict(f)
 
             if f["estado"] in ("pendiente", "vencida"):
-                btn_pagar = QPushButton("💳 Pagar")
-                btn_pagar.setFixedHeight(30)
+                btn_pagar = QPushButton("💳  Pagar")
+                btn_pagar.setFixedHeight(32)
+                btn_pagar.setMinimumWidth(90)
                 btn_pagar.setStyleSheet(
-                    "QPushButton{background:#2E7D32;color:white;border-radius:4px;"
-                    "font-size:10pt;padding:0 8px;}"
+                    "QPushButton{background:#2E7D32;color:white;border-radius:6px;"
+                    "font-size:10pt;padding:0 14px;}"
                     "QPushButton:hover{background:#388E3C;}"
                 )
                 btn_pagar.clicked.connect(
                     lambda _, fd=fdict: self._pagar_factura(fd))
                 acc_lay.addWidget(btn_pagar)
 
-            btn_edit = QPushButton("✏️")
-            btn_edit.setFixedSize(30, 30)
+            btn_edit = QPushButton("✏️  Editar")
+            btn_edit.setFixedHeight(32)
+            btn_edit.setMinimumWidth(85)
             btn_edit.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;}"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
+                "color:#F5F5F5;font-size:10pt;padding:0 12px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
             btn_edit.clicked.connect(lambda _, fd=fdict: self._editar_factura(fd))
             acc_lay.addWidget(btn_edit)
 
-            btn_del = QPushButton("🗑")
-            btn_del.setFixedSize(30, 30)
+            btn_del = QPushButton("🗑  Borrar")
+            btn_del.setFixedHeight(32)
+            btn_del.setMinimumWidth(85)
             btn_del.setStyleSheet(
-                "QPushButton{background:#B71C1C;color:white;border-radius:4px;}"
-                "QPushButton:hover{background:#C62828;}"
+                "QPushButton{background:#7F0000;color:white;border-radius:6px;"
+                "font-size:10pt;padding:0 12px;}"
+                "QPushButton:hover{background:#B71C1C;}"
             )
             btn_del.clicked.connect(lambda _, fd=fdict: self._eliminar_factura(fd))
             acc_lay.addWidget(btn_del)
 
             self.tabla_facturas.setCellWidget(i, 7, acc)
-            self.tabla_facturas.setRowHeight(i, 44)
+            self.tabla_facturas.setRowHeight(i, 48)
 
     def _cargar_resumen(self):
         provs = db.resumen_deuda_proveedores()
@@ -620,8 +797,10 @@ class CuentasProveedorWidget(QWidget):
 
     def _tab_changed(self, idx):
         if idx == 1:
-            self._cargar_resumen()
+            self._actualizar_alertas()
         elif idx == 2:
+            self._cargar_resumen()
+        elif idx == 3:
             self._cargar_analisis()
 
     def _build_tab_analisis(self) -> QWidget:
@@ -757,16 +936,32 @@ class CuentasProveedorWidget(QWidget):
         if not HAS_MATPLOTLIB:
             return
 
-        # Construir meses completos del rango
+        # Meses únicos ordenados
         todos_meses = sorted(set(
             [r["mes"] for r in por_mes] + [r["mes"] for r in ventas_mes]))
         if not todos_meses:
+            self.an_canvas.fig.clear()
+            self.an_canvas.draw()
             return
 
-        # Compras por proveedor por mes (para barras apiladas)
-        proveedores = list({r["proveedor_nombre"] or "Sin nombre" for r in por_mes})
-        colores_prov = ["#FF9800", "#E91E63", "#9C27B0", "#3F51B5",
-                        "#00BCD4", "#8BC34A", "#FF5722", "#607D8B"]
+        # Totales de compras por mes (suma de todos los proveedores)
+        compras_vals = np.array([
+            sum(r["compras_total"] or 0 for r in por_mes if r["mes"] == m)
+            for m in todos_meses], dtype=float)
+        ventas_vals = np.array(
+            [next((r["ventas_total"] or 0 for r in ventas_mes if r["mes"] == m), 0)
+             for m in todos_meses], dtype=float)
+
+        # Etiquetas de mes legibles (abrev): "2026-04" → "Abr 26"
+        MESES = ["Ene","Feb","Mar","Abr","May","Jun",
+                 "Jul","Ago","Sep","Oct","Nov","Dic"]
+        def fmt_mes(m):
+            try:
+                y, mo = m.split("-")
+                return f"{MESES[int(mo)-1]} {y[2:]}"
+            except Exception:
+                return m
+        etiquetas = [fmt_mes(m) for m in todos_meses]
 
         self.an_canvas.fig.clear()
         ax = self.an_canvas.fig.add_subplot(111)
@@ -774,45 +969,36 @@ class CuentasProveedorWidget(QWidget):
         self.an_canvas.fig.patch.set_facecolor("#1A1A1A")
 
         xs = np.arange(len(todos_meses))
-        bottoms = np.zeros(len(todos_meses))
+        w = 0.35
 
-        for idx_p, (prov, color) in enumerate(zip(proveedores, colores_prov)):
-            vals = []
-            for mes in todos_meses:
-                row = next((r for r in por_mes
-                            if r["mes"] == mes and (r["proveedor_nombre"] or "Sin nombre") == prov), None)
-                vals.append(row["compras_total"] if row else 0)
-            vals = np.array(vals, dtype=float)
-            ax.bar(xs, vals, 0.55, bottom=bottoms,
-                   color=color, alpha=0.88, label=prov)
-            bottoms += vals
+        bars_c = ax.bar(xs - w/2, compras_vals, w,
+                        color="#FF6B35", alpha=0.9, label="🟠 Compras")
+        bars_v = ax.bar(xs + w/2, ventas_vals,  w,
+                        color="#4CAF50", alpha=0.9, label="🟢 Ventas")
 
-        # Línea de ventas superpuesta
-        ventas_vals = np.array(
-            [next((r["ventas_total"] for r in ventas_mes if r["mes"] == m), 0)
-             for m in todos_meses], dtype=float)
-        ax2 = ax.twinx()
-        ax2.plot(xs, ventas_vals, color="#4CAF50", linewidth=2,
-                 marker="o", markersize=5, label="Ventas", zorder=5)
-        ax2.tick_params(axis="y", colors="#4CAF50")
-        ax2.set_ylabel("Ventas ($)", color="#4CAF50", fontsize=8)
-        ax2.spines[:].set_color("#333")
+        # Etiquetas $ encima de cada barra
+        max_val = max(np.max(compras_vals), np.max(ventas_vals)) if len(todos_meses) else 1
+        for bar in list(bars_c) + list(bars_v):
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, h + max_val * 0.01,
+                        f"${h:,.0f}", ha="center", va="bottom",
+                        color="#DDDDDD", fontsize=7, fontweight="bold")
 
         ax.set_xticks(xs)
-        ax.set_xticklabels(todos_meses, rotation=45, color="#AAAAAA", fontsize=8)
-        ax.tick_params(axis="y", colors="#AAAAAA")
-        ax.set_ylabel("Compras ($)", color="#AAAAAA", fontsize=8)
-        ax.set_title("Compras por proveedor vs. Ventas — por mes",
-                     color="#F5F5F5", fontsize=10)
+        ax.set_xticklabels(etiquetas, color="#BBBBBB", fontsize=9)
+        ax.tick_params(axis="y", colors="#888888")
+        ax.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+        ax.set_ylim(0, max_val * 1.2 if max_val > 0 else 1)
+        ax.set_title("Compras vs. Ventas por mes",
+                     color="#F5F5F5", fontsize=11, fontweight="bold", pad=10)
         ax.spines[:].set_color("#333")
+        ax.set_axisbelow(True)
+        ax.yaxis.grid(True, color="#2E2E2E", linewidth=0.7)
 
-        # Leyenda combinada
-        handles1, labels1 = ax.get_legend_handles_labels()
-        handles2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(handles1 + handles2, labels1 + labels2,
-                  loc="upper left", fontsize=7, facecolor="#2A2A2A",
-                  edgecolor="#444", labelcolor="#F5F5F5", framealpha=0.85,
-                  ncol=min(len(proveedores) + 1, 4))
+        ax.legend(loc="upper left", fontsize=9, facecolor="#2A2A2A",
+                  edgecolor="#444", labelcolor="#F5F5F5", framealpha=0.9)
 
         self.an_canvas.fig.tight_layout()
         self.an_canvas.draw()

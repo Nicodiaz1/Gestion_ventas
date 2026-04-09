@@ -86,12 +86,15 @@ class BuscadorProductos(QDialog):
 # ─────────────────────────────────────────────────────────────
 
 class ItemCarrito:
-    def __init__(self, producto: dict, cantidad: int = 1):
+    def __init__(self, producto: dict, cantidad: int = 1,
+                 lote_id: int = None, cosecha: int = None):
         self.producto_id  = producto["id"]
         self.nombre       = producto["nombre"]
         self.precio_unit  = float(producto["precio_venta"])
         self.cantidad     = cantidad
         self.stock_actual = producto["stock_actual"]
+        self.lote_id      = lote_id    # None = FIFO automático
+        self.cosecha      = cosecha    # para mostrar en carrito
 
     @property
     def subtotal(self) -> float:
@@ -267,6 +270,8 @@ class CarritoWidget(QWidget):
         self.lista_ultimas = QListWidget()
         self.lista_ultimas.setMaximumHeight(180)
         self.lista_ultimas.setStyleSheet("font-size:9pt;")
+        self.lista_ultimas.setToolTip("Doble clic para ver el detalle de la venta")
+        self.lista_ultimas.itemDoubleClicked.connect(self._ver_detalle_venta)
         lay_der.addWidget(self.lista_ultimas)
 
         btn_anular = QPushButton("↩  Anular última venta")
@@ -306,36 +311,103 @@ class CarritoWidget(QWidget):
     # ── Carrito ───────────────────────────────────────────────
 
     def _agregar_al_carrito(self, producto: dict):
+        # Si ya está en el carrito, solo sumar cantidad
         for item in self.carrito:
-            if item.producto_id == producto["id"]:
-                if item.cantidad >= item.stock_actual:
-                    QMessageBox.warning(self, "Sin stock",
-                        f"No hay más stock de '{item.nombre}'.\n"
-                        f"Disponible: {item.stock_actual}")
-                    return
+            if item.producto_id == producto["id"] and item.lote_id is None:
                 item.cantidad += 1
                 self._refrescar_tabla()
                 return
 
-        if producto["stock_actual"] <= 0:
-            resp = QMessageBox.question(
-                self, "Sin stock",
-                f"'{producto['nombre']}' no tiene stock.\n¿Agregar igual?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if resp == QMessageBox.StandardButton.No:
+        # Verificar si tiene múltiples lotes distintos
+        lotes = db.obtener_lotes_producto(producto["id"])
+
+        lote_id = None
+        cosecha = None
+
+        if len(lotes) > 1:
+            # Mostrar selector de lote
+            opciones = []
+            for l in lotes:
+                venc = l["fecha_vencimiento"]
+                SENTINEL = "2000-01-01"
+                venc_txt = f"  —  vence {venc[:10]}" if (venc and venc[:10] != SENTINEL) else ""
+                if l["cosecha"]:
+                    opciones.append(f"Cosecha {l['cosecha']}  ({l['cantidad']} en stock{venc_txt})")
+                else:
+                    opciones.append(f"Sin cosecha especificada  ({l['cantidad']} en stock{venc_txt})")
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"Seleccionar lote — {producto['nombre']}")
+            dlg.setMinimumWidth(400)
+            dlg.setModal(True)
+            lay_dlg = QVBoxLayout(dlg)
+            lay_dlg.setSpacing(10)
+            lay_dlg.setContentsMargins(20, 16, 20, 16)
+
+            lbl = QLabel(f"<b>{producto['nombre']}</b> tiene varios lotes disponibles.\n"
+                         "¿Cuál vas a vender?")
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet("font-size:11pt; color:#F5F5F5;")
+            lay_dlg.addWidget(lbl)
+
+            from PyQt6.QtWidgets import QListWidget as _QListWidget
+            lista_sel = _QListWidget()
+            lista_sel.addItems(opciones)
+            lista_sel.setCurrentRow(0)
+            lista_sel.setStyleSheet("font-size:10pt;")
+            lay_dlg.addWidget(lista_sel)
+
+            btn_row = QHBoxLayout()
+            btn_ok = QPushButton("✅  Seleccionar")
+            btn_ok.setStyleSheet(
+                "QPushButton{background:#722F37;color:white;font-weight:700;"
+                "border-radius:6px;padding:6px 16px;}"
+                "QPushButton:hover{background:#8B3A44;}")
+            btn_cancel = QPushButton("Cancelar")
+            btn_cancel.setObjectName("btn_secundario")
+            btn_ok.clicked.connect(dlg.accept)
+            btn_cancel.clicked.connect(dlg.reject)
+            btn_row.addWidget(btn_ok)
+            btn_row.addWidget(btn_cancel)
+            lay_dlg.addLayout(btn_row)
+            lista_sel.itemDoubleClicked.connect(lambda _: dlg.accept())
+
+            if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
-        self.carrito.append(ItemCarrito(producto))
+            idx = lista_sel.currentRow()
+            lote_sel = lotes[idx]
+            lote_id = lote_sel["id"]
+            cosecha = lote_sel["cosecha"]
+
+        # Verificar si ya hay un item con ese lote_id
+        for item in self.carrito:
+            if item.producto_id == producto["id"] and item.lote_id == lote_id:
+                item.cantidad += 1
+                self._refrescar_tabla()
+                return
+
+        self.carrito.append(ItemCarrito(producto, lote_id=lote_id, cosecha=cosecha))
         self._refrescar_tabla()
 
     def _refrescar_tabla(self):
         self.tabla.setRowCount(len(self.carrito))
         for i, item in enumerate(self.carrito):
-            self.tabla.setItem(i, 0, QTableWidgetItem(item.nombre))
+            sin_stock = item.cantidad > item.stock_actual
+            nombre_txt = item.nombre
+            if sin_stock:
+                nombre_txt = f"⚠️ {item.nombre}  (stock: {item.stock_actual}, pedido: {item.cantidad})"
+            nombre_it = QTableWidgetItem(nombre_txt)
+            if sin_stock:
+                nombre_it.setForeground(QColor("#FF9800"))
+                nombre_it.setToolTip(
+                    f"Stock disponible: {item.stock_actual} — "
+                    "Podés confirmar la venta igual si el stock no está actualizado.")
+            self.tabla.setItem(i, 0, nombre_it)
             self.tabla.setItem(i, 1, QTableWidgetItem(
                 f"${item.precio_unit:.2f}"))
             spin = QSpinBox()
-            spin.setRange(1, max(item.stock_actual, 999))
+            spin.setRange(1, 9999)
             spin.setValue(item.cantidad)
             spin.valueChanged.connect(
                 lambda val, idx=i: self._cambiar_cantidad(idx, val))
@@ -360,6 +432,22 @@ class CarritoWidget(QWidget):
     def _cambiar_cantidad(self, idx: int, valor: int):
         if idx < len(self.carrito):
             self.carrito[idx].cantidad = valor
+            # Actualizar celda nombre con advertencia si corresponde
+            item = self.carrito[idx]
+            sin_stock = item.cantidad > item.stock_actual
+            nombre_base = item.nombre
+            if item.cosecha:
+                nombre_base = f"{item.nombre}  [{item.cosecha}]"
+            nombre_txt = nombre_base
+            if sin_stock:
+                nombre_txt = f"⚠️ {nombre_base}  (stock: {item.stock_actual}, pedido: {item.cantidad})"
+            nombre_it = QTableWidgetItem(nombre_txt)
+            if sin_stock:
+                nombre_it.setForeground(QColor("#FF9800"))
+                nombre_it.setToolTip(
+                    f"Stock disponible: {item.stock_actual} — "
+                    "Podés confirmar la venta igual si el stock no está actualizado.")
+            self.tabla.setItem(idx, 0, nombre_it)
             self.tabla.setItem(
                 idx, 3,
                 QTableWidgetItem(f"${self.carrito[idx].subtotal:.2f}"))
@@ -410,6 +498,22 @@ class CarritoWidget(QWidget):
             QMessageBox.information(self, "Carrito vacío",
                 "Agregá al menos un producto antes de cobrar.")
             return
+
+        # Verificar productos con stock insuficiente
+        sin_stock = [(i.nombre, i.stock_actual, i.cantidad)
+                     for i in self.carrito if i.cantidad > i.stock_actual]
+        if sin_stock:
+            detalle = "\n".join(
+                f"  • {nom}: stock {st}, pedido {ped}"
+                for nom, st, ped in sin_stock)
+            resp = QMessageBox.question(
+                self, "⚠️  Stock insuficiente",
+                f"Los siguientes productos tienen stock insuficiente:\n\n{detalle}\n\n"
+                "Podés confirmar igual (por ej. si el stock no está cargado aún).\n"
+                "¿Confirmar la venta de todas formas?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if resp == QMessageBox.StandardButton.No:
+                return
         subtotal   = sum(i.subtotal for i in self.carrito)
         porcentaje = self.spin_porcentaje.value()
         total      = subtotal * (1 + porcentaje / 100)
@@ -424,7 +528,8 @@ class CarritoWidget(QWidget):
             items_db = [
                 {"producto_id": i.producto_id,
                  "cantidad":    i.cantidad,
-                 "precio_unit": i.precio_unit}
+                 "precio_unit": i.precio_unit,
+                 "lote_id":     i.lote_id}
                 for i in self.carrito
             ]
             try:
@@ -456,6 +561,68 @@ class CarritoWidget(QWidget):
                 f"#{v['id']}  {ic}  ${v['total']:,.2f}  –  {v['hora'][:5]}")
             item.setData(Qt.ItemDataRole.UserRole, v["id"])
             self.lista_ultimas.addItem(item)
+
+    def _ver_detalle_venta(self, item):
+        venta_id = item.data(Qt.ItemDataRole.UserRole)
+        if venta_id is None:
+            return
+        datos = db.detalle_venta(venta_id)
+        v = datos["venta"]
+        items = datos["items"]
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Detalle venta #{venta_id}")
+        dlg.setMinimumWidth(520)
+        dlg.setModal(True)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(10)
+        lay.setContentsMargins(20, 18, 20, 18)
+
+        icons = {"efectivo": "💵", "debito": "💳", "credito": "🏦",
+                 "transferencia": "📲", "qr": "🔲"}
+        medio = icons.get(v["medio_pago"], "💰") + "  " + v["medio_pago"].capitalize()
+        titulo = QLabel(f"📝  Venta #{venta_id}   —   {v['fecha']}  {v['hora'][:5]}")
+        titulo.setObjectName("titulo_seccion")
+        lay.addWidget(titulo)
+
+        info = QLabel(f"Medio de pago: {medio}   •   Total: $ {v['total']:,.2f}")
+        info.setStyleSheet("color:#C9A84C; font-weight:700; font-size:11pt;")
+        lay.addWidget(info)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color:#333;")
+        lay.addWidget(sep)
+
+        tabla = QTableWidget(len(items), 4)
+        tabla.setHorizontalHeaderLabels(["Producto", "Cosecha", "Cant.", "Subtotal"])
+        tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        tabla.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        tabla.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        tabla.verticalHeader().setVisible(False)
+        tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        tabla.setAlternatingRowColors(True)
+        tabla.setMaximumHeight(min(44 * len(items) + 36, 300))
+        for i, d in enumerate(items):
+            tabla.setItem(i, 0, QTableWidgetItem(d["nombre"]))
+            cosecha = d["cosecha"]
+            cosecha_txt = str(cosecha) if cosecha else "—"
+            tabla.setItem(i, 1, QTableWidgetItem(cosecha_txt))
+            cant_it = QTableWidgetItem(str(d["cantidad"]))
+            cant_it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            tabla.setItem(i, 2, cant_it)
+            sub_it = QTableWidgetItem(f"$ {d['subtotal']:,.2f}")
+            sub_it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            tabla.setItem(i, 3, sub_it)
+            tabla.setRowHeight(i, 40)
+        lay.addWidget(tabla)
+
+        btn = QPushButton("Cerrar")
+        btn.setObjectName("btn_secundario")
+        btn.clicked.connect(dlg.accept)
+        lay.addWidget(btn)
+        dlg.exec()
 
     def _anular_ultima_venta(self):
         item = self.lista_ultimas.currentItem()

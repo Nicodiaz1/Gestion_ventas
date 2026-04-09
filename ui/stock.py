@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QDialog, QFormLayout, QComboBox, QSpinBox,
     QDoubleSpinBox, QAbstractItemView, QTabWidget, QTextEdit,
-    QFrame, QCheckBox, QSizePolicy, QDateEdit
+    QFrame, QCheckBox, QSizePolicy, QDateEdit, QStyledItemDelegate, QMenu
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QDate
 from PyQt6.QtGui import QColor, QFont
@@ -15,6 +15,39 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import database as db
+
+
+class FilaColorDelegate(QStyledItemDelegate):
+    """Fuerza el background personalizado incluso con QSS activo en macOS."""
+    def paint(self, painter, option, index):
+        from PyQt6.QtGui import QBrush, QPalette
+        from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
+
+        bg = index.data(Qt.ItemDataRole.BackgroundRole)
+        is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
+
+        if bg is not None and not is_selected:
+            opt = QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+
+            # Obtener el color del brush
+            color = bg if isinstance(bg, QColor) else bg.color()
+
+            # Parchar la paleta con nuestro color → QMacStyle y QCommonStyle lo usan
+            palette = QPalette(opt.palette)
+            palette.setColor(QPalette.ColorRole.Base, color)
+            palette.setColor(QPalette.ColorRole.AlternateBase, color)
+            opt.palette = palette
+            opt.backgroundBrush = QBrush(color)
+
+            # Pre-rellenar el rect nosotros también (doble seguro)
+            painter.save()
+            painter.fillRect(option.rect, color)
+            painter.restore()
+
+            super().paint(painter, opt, index)
+        else:
+            super().paint(painter, option, index)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -26,7 +59,7 @@ class DialogoProducto(QDialog):
         super().__init__(parent)
         self.producto = producto
         self.setWindowTitle("Nuevo Producto" if not producto else "Editar Producto")
-        self.setMinimumSize(520, 560)
+        self.setMinimumSize(600, 560)
         self.setModal(True)
         self._build_ui()
         if producto:
@@ -43,6 +76,8 @@ class DialogoProducto(QDialog):
 
         form = QFormLayout()
         form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         # Nombre
         self.txt_nombre = QLineEdit()
@@ -71,28 +106,6 @@ class DialogoProducto(QDialog):
         self.spin_precio.setSingleStep(100)
         self.spin_precio.setPrefix("$ ")
         form.addRow("Precio de venta *:", self.spin_precio)
-
-        # Aumento rápido por porcentaje
-        if self.producto:   # solo al editar, no al crear
-            porc_row = QHBoxLayout()
-            self.spin_aumento = QDoubleSpinBox()
-            self.spin_aumento.setRange(-99, 9999)
-            self.spin_aumento.setDecimals(1)
-            self.spin_aumento.setSingleStep(5)
-            self.spin_aumento.setSuffix(" %")
-            self.spin_aumento.setValue(0)
-            self.spin_aumento.setToolTip(
-                "Aplicá un % de aumento o descuento sobre el precio de venta actual.\n"
-                "Positivo = aumento, negativo = descuento.")
-            btn_aplicar = QPushButton("Aplicar %")
-            btn_aplicar.setToolTip("Recalcula el precio con el porcentaje ingresado")
-            btn_aplicar.clicked.connect(self._aplicar_porcentaje)
-            porc_row.addWidget(self.spin_aumento)
-            porc_row.addWidget(btn_aplicar)
-            porc_row.addStretch()
-            form.addRow("📈 Ajuste porcentual:", porc_row)
-        else:
-            self.spin_aumento = None
 
         # Precio de costo
         self.spin_costo = QDoubleSpinBox()
@@ -140,6 +153,42 @@ class DialogoProducto(QDialog):
         self.txt_descripcion.setPlaceholderText("Notas opcionales sobre el producto…")
         form.addRow("Descripción:", self.txt_descripcion)
 
+        # Separador visual
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color:#333;")
+        form.addRow(sep)
+
+        # Año de cosecha
+        cosecha_row = QHBoxLayout()
+        self.spin_cosecha = QSpinBox()
+        self.spin_cosecha.setRange(0, 2100)
+        self.spin_cosecha.setSpecialValueText("Sin especificar")
+        self.spin_cosecha.setValue(0)
+        self.spin_cosecha.setToolTip("Año de cosecha / añada del vino (0 = sin especificar)")
+        lbl_cosecha_hint = QLabel("(0 = sin especificar)")
+        lbl_cosecha_hint.setStyleSheet("color:#666; font-size:9pt;")
+        cosecha_row.addWidget(self.spin_cosecha)
+        cosecha_row.addWidget(lbl_cosecha_hint)
+        cosecha_row.addStretch()
+        form.addRow("🍇  Año de cosecha:", cosecha_row)
+
+        # Fecha de vencimiento: checkbox en su propia fila, datepicker en la siguiente
+        self.chk_tiene_venc = QCheckBox("Tiene fecha de vencimiento")
+        form.addRow("📅  Vencimiento:", self.chk_tiene_venc)
+
+        date_row = QHBoxLayout()
+        self.date_venc = QDateEdit()
+        self.date_venc.setCalendarPopup(True)
+        self.date_venc.setDisplayFormat("dd/MM/yyyy")
+        self.date_venc.setDate(QDate.currentDate().addMonths(6))
+        self.date_venc.setVisible(False)
+        date_row.addWidget(self.date_venc)
+        date_row.addStretch()
+        form.addRow("", date_row)
+        self.chk_tiene_venc.stateChanged.connect(
+            lambda s: self.date_venc.setVisible(s == Qt.CheckState.Checked.value))
+
         lay.addLayout(form)
 
         # Botones
@@ -164,17 +213,6 @@ class DialogoProducto(QDialog):
         self.cmb_categoria.addItem("— Sin categoría —", None)
         for c in db.obtener_categorias():
             self.cmb_categoria.addItem(c["nombre"], c["id"])
-
-    def _aplicar_porcentaje(self):
-        if self.spin_aumento is None:
-            return
-        pct = self.spin_aumento.value()
-        if pct == 0:
-            return
-        precio_actual = self.spin_precio.value()
-        nuevo = round(precio_actual * (1 + pct / 100), 2)
-        self.spin_precio.setValue(nuevo)
-        self.spin_aumento.setValue(0)
 
     def _toggle_codigo(self, state):
         self.txt_codigo.setEnabled(state != Qt.CheckState.Checked.value)
@@ -206,6 +244,18 @@ class DialogoProducto(QDialog):
             if self.cmb_categoria.itemData(i) == cat_id:
                 self.cmb_categoria.setCurrentIndex(i)
                 break
+
+        # Cargar cosecha y vencimiento del lote más reciente
+        lotes = db.obtener_lotes_producto(p["id"])
+        if lotes:
+            lote0 = lotes[-1]   # más reciente (orden FIFO → último tiene cosecha más nueva)
+            if lote0["cosecha"]:
+                self.spin_cosecha.setValue(lote0["cosecha"])
+            SENTINEL = "2000-01-01"
+            venc = lote0["fecha_vencimiento"]
+            if venc and str(venc)[:10] != SENTINEL:
+                self.chk_tiene_venc.setChecked(True)
+                self.date_venc.setDate(QDate.fromString(str(venc)[:10], "yyyy-MM-dd"))
 
     def _guardar(self):
         nombre = self.txt_nombre.text().strip()
@@ -241,10 +291,31 @@ class DialogoProducto(QDialog):
         }
 
         try:
+            cosecha = self.spin_cosecha.value() or None
+            fecha_venc = (self.date_venc.date().toString("yyyy-MM-dd")
+                          if self.chk_tiene_venc.isChecked() else None)
             if self.producto:
                 db.actualizar_producto(self.producto["id"], datos)
+                # Actualizar cosecha/vencimiento en el lote más reciente
+                lotes = db.obtener_lotes_producto(self.producto["id"])
+                if lotes:
+                    db.actualizar_lote(lotes[-1]["id"],
+                                       cosecha=cosecha,
+                                       fecha_vencimiento=fecha_venc)
+                elif (cosecha or fecha_venc) and datos["stock_actual"] > 0:
+                    # No había lotes — crear uno con el stock actual
+                    db.crear_lote(self.producto["id"], datos["stock_actual"],
+                                  fecha_vencimiento=fecha_venc,
+                                  cosecha=cosecha,
+                                  motivo="Lote creado al editar producto")
             else:
-                db.crear_producto(datos)
+                pid = db.crear_producto(datos)
+                # Si se especificó cosecha o vencimiento al crear, registrar lote inicial
+                if (cosecha or fecha_venc) and datos["stock_actual"] > 0:
+                    db.crear_lote(pid, datos["stock_actual"],
+                                  fecha_vencimiento=fecha_venc,
+                                  cosecha=cosecha,
+                                  motivo="Ingreso inicial")
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error al guardar", str(e))
@@ -375,12 +446,12 @@ class DialogoLotesProducto(QDialog):
         self.tabla = QTableWidget(0, 5)
         self.tabla.setHorizontalHeaderLabels(
             ["Cosecha", "Vencimiento", "Cantidad", "Fecha ingreso", "Motivo"])
-        self.tabla.horizontalHeader().setSectionResizeMode(
-            4, QHeaderView.ResizeMode.Stretch)
-        self.tabla.setColumnWidth(0, 90)
-        self.tabla.setColumnWidth(1, 130)
-        self.tabla.setColumnWidth(2, 90)
-        self.tabla.setColumnWidth(3, 110)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -397,24 +468,38 @@ class DialogoLotesProducto(QDialog):
         from datetime import date
         hoy   = date.today()
         lotes = db.obtener_lotes_producto(self.producto["id"])
-        self.tabla.setRowCount(len(lotes))
+
+        stock_total    = self.producto["stock_actual"] or 0
+        stock_en_lotes = sum(l["cantidad"] for l in lotes)
+        stock_sin_lote = max(0, stock_total - stock_en_lotes)
+
+        # Filas: lotes + (fila sin lote si corresponde) + fila TOTAL
+        n_filas = len(lotes) + (1 if stock_sin_lote > 0 else 0) + 1
+        self.tabla.setRowCount(n_filas)
 
         for i, l in enumerate(lotes):
             cosecha = str(l["cosecha"]) if l["cosecha"] else "—"
             self.tabla.setItem(i, 0, QTableWidgetItem(cosecha))
 
             venc_str = l["fecha_vencimiento"]
-            if venc_str:
-                dias = (date.fromisoformat(venc_str) - hoy).days
-                venc_item = QTableWidgetItem(f"{venc_str}  ({'+' if dias >= 0 else ''}{dias}d)")
-                if dias < 0:
-                    venc_item.setForeground(QColor("#9E9E9E"))
-                elif dias <= 7:
-                    venc_item.setForeground(QColor("#EF5350"))
-                elif dias <= 30:
-                    venc_item.setForeground(QColor("#FF9800"))
+            SENTINEL = "2000-01-01"
+            if venc_str and venc_str[:10] != SENTINEL:
+                try:
+                    dias = (date.fromisoformat(venc_str[:10]) - hoy).days
+                except Exception:
+                    dias = None
+                if dias is not None:
+                    venc_item = QTableWidgetItem(f"{venc_str[:10]}  ({'+' if dias >= 0 else ''}{dias}d)")
+                    if dias < 0:
+                        venc_item.setForeground(QColor("#9E9E9E"))
+                    elif dias <= 7:
+                        venc_item.setForeground(QColor("#EF5350"))
+                    elif dias <= 30:
+                        venc_item.setForeground(QColor("#FF9800"))
+                    else:
+                        venc_item.setForeground(QColor("#66BB6A"))
                 else:
-                    venc_item.setForeground(QColor("#66BB6A"))
+                    venc_item = QTableWidgetItem(venc_str[:10])
             else:
                 venc_item = QTableWidgetItem("—")
                 venc_item.setForeground(QColor("#666"))
@@ -427,9 +512,44 @@ class DialogoLotesProducto(QDialog):
             self.tabla.setItem(i, 4, QTableWidgetItem(l["motivo"] or ""))
             self.tabla.setRowHeight(i, 36)
 
-        if not lotes:
+        # Fila "Sin lote" si hay stock no asignado a ningún lote
+        idx = len(lotes)
+        if stock_sin_lote > 0:
+            def _gray(txt, col):
+                it = QTableWidgetItem(txt)
+                it.setForeground(QColor("#AAAAAA"))
+                if col == 2:
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                return it
+            self.tabla.setItem(idx, 0, _gray("Sin lote / cosecha", 0))
+            self.tabla.setItem(idx, 1, _gray("—", 1))
+            cant_sl = QTableWidgetItem(str(stock_sin_lote))
+            cant_sl.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            cant_sl.setForeground(QColor("#AAAAAA"))
+            self.tabla.setItem(idx, 2, cant_sl)
+            self.tabla.setItem(idx, 3, _gray("—", 3))
+            self.tabla.setItem(idx, 4, _gray("Stock sin trazabilidad", 4))
+            self.tabla.setRowHeight(idx, 36)
+            idx += 1
+
+        # Fila TOTAL
+        total_item = QTableWidgetItem("TOTAL")
+        total_item.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        total_item.setForeground(QColor("#C9A84C"))
+        self.tabla.setItem(idx, 0, total_item)
+        self.tabla.setItem(idx, 1, QTableWidgetItem(""))
+        cant_total = QTableWidgetItem(str(stock_total))
+        cant_total.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        cant_total.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        cant_total.setForeground(QColor("#C9A84C"))
+        self.tabla.setItem(idx, 2, cant_total)
+        self.tabla.setItem(idx, 3, QTableWidgetItem(""))
+        self.tabla.setItem(idx, 4, QTableWidgetItem(""))
+        self.tabla.setRowHeight(idx, 36)
+
+        if not lotes and stock_sin_lote == 0:
             self.tabla.setRowCount(1)
-            item = QTableWidgetItem("No hay lotes registrados para este producto")
+            item = QTableWidgetItem("No hay stock registrado para este producto")
             item.setForeground(QColor("#666"))
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setItem(0, 0, item)
@@ -721,16 +841,15 @@ class DialogoCargaStock(QDialog):
                 else:
                     detalle_motivo = motivo
                 db.agregar_stock(pid, unidades_a_agregar, detalle_motivo)
-                # Registrar lote si tiene cosecha o vencimiento
+                # Siempre registrar lote para mantener trazabilidad exacta
                 lote = entry.get("lote", {})
-                if lote.get("cosecha") or lote.get("fecha_vencimiento"):
-                    db.crear_lote(
-                        pid, unidades_a_agregar,
-                        fecha_vencimiento=lote.get("fecha_vencimiento"),
-                        cosecha=lote.get("cosecha"),
-                        motivo=detalle_motivo,
-                        notas=lote.get("notas", "")
-                    )
+                db.crear_lote(
+                    pid, unidades_a_agregar,
+                    fecha_vencimiento=lote.get("fecha_vencimiento"),
+                    cosecha=lote.get("cosecha"),
+                    motivo=detalle_motivo,
+                    notas=lote.get("notas", "")
+                )
             QMessageBox.information(
                 self, "✅  Stock actualizado",
                 f"Se ingresaron {total_unidades} unidades en {len(self.items)} producto(s)."
@@ -1098,7 +1217,10 @@ class StockWidget(QWidget):
         self.tabla_productos.setColumnWidth(4, 110)
         self.tabla_productos.setColumnWidth(5, 90)
         self.tabla_productos.setColumnWidth(6, 80)
-        self.tabla_productos.setAlternatingRowColors(True)
+        self.tabla_productos.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        self.tabla_productos.setColumnWidth(7, 215)
+        self.tabla_productos.setAlternatingRowColors(False)
+        self.tabla_productos.setItemDelegate(FilaColorDelegate(self.tabla_productos))
         self.tabla_productos.verticalHeader().setVisible(False)
         self.tabla_productos.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla_productos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -1235,8 +1357,13 @@ class StockWidget(QWidget):
 
     def cargar_productos(self):
         self.todos_productos = db.obtener_todos_productos()
-        # Pre-cargar cosechas de todos los productos de una vez
+        # Pre-cargar cosechas y alertas de vencimiento de todos los productos
         self._cosechas_cache = {}
+        self._vencimiento_cache = set()   # ids de productos con lote próximo a vencer
+        dias_alerta = int(db.get_config("dias_alerta_vencimiento", 7))
+        lotes_venciendo = db.lotes_por_vencer(dias_alerta)
+        for lv in lotes_venciendo:
+            self._vencimiento_cache.add(lv["producto_id"])
         for p in self.todos_productos:
             lotes = db.obtener_lotes_producto(p["id"])
             cosechas = sorted({l["cosecha"] for l in lotes if l["cosecha"]})
@@ -1282,69 +1409,83 @@ class StockWidget(QWidget):
             self.tabla_productos.setItem(i, 5, QTableWidgetItem(f"${p['precio_costo']:,.2f}"))
 
             stock_item = QTableWidgetItem(str(p["stock_actual"]))
-            if p["stock_actual"] <= p["stock_minimo"]:
+            stock_bajo = p["stock_actual"] <= p["stock_minimo"]
+            vence_pronto = p["id"] in getattr(self, "_vencimiento_cache", set())
+            if stock_bajo:
                 stock_item.setForeground(QColor("#FF9800"))
                 stock_item.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             self.tabla_productos.setItem(i, 6, stock_item)
 
+            # Colorear fila completa según estado
+            if stock_bajo:
+                row_bg = QColor(110, 20, 22)          # rojo oscuro opaco
+            elif vence_pronto:
+                row_bg = QColor(100, 55, 0)           # naranja oscuro opaco
+            elif i % 2 == 1:
+                row_bg = QColor(37, 37, 37)           # alternado normal
+            else:
+                row_bg = QColor(30, 30, 30)           # normal
+
+            for col in range(7):
+                it = self.tabla_productos.item(i, col)
+                if it:
+                    it.setBackground(row_bg)
+
             # Botones de acciones
             acc_widget = QWidget()
             acc_lay = QHBoxLayout(acc_widget)
-            acc_lay.setContentsMargins(4, 2, 4, 2)
-            acc_lay.setSpacing(4)
+            acc_lay.setContentsMargins(8, 4, 8, 4)
+            acc_lay.setSpacing(8)
 
-            btn_edit = QPushButton("✏️")
-            btn_edit.setFixedSize(32, 32)
-            btn_edit.setToolTip("Editar producto")
-            btn_edit.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;}"
-                "QPushButton:hover{background:#3C3C3C;}"
-            )
             producto_dict = dict(p)
-            btn_edit.clicked.connect(lambda _, pd=producto_dict: self._editar_producto(pd))
 
-            btn_stock = QPushButton("+")
-            btn_stock.setFixedSize(32, 32)
-            btn_stock.setToolTip("Agregar stock rápido")
-            btn_stock.setStyleSheet(
-                "QPushButton{background:#1B5E20;color:white;border-radius:4px;font-weight:700;}"
-                "QPushButton:hover{background:#2E7D32;}"
+            # Botón Opciones — menú de acciones
+            btn_acc = QPushButton("☰  Opciones")
+            btn_acc.setFixedHeight(32)
+            btn_acc.setMinimumWidth(95)
+            btn_acc.setToolTip("Editar • Agregar stock • Ajuste • Ver lotes")
+            btn_acc.setStyleSheet(
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
+                "color:#F5F5F5;font-size:10pt;padding:0 12px;}"
+                "QPushButton:hover{background:#3C3C3C;border-color:#888;}"
             )
-            btn_stock.clicked.connect(
-                lambda _, pd=producto_dict: self._agregar_stock_rapido(pd))
 
-            btn_del = QPushButton("🗑")
-            btn_del.setFixedSize(32, 32)
+            def _make_menu(pd=producto_dict):
+                menu = QMenu(self)
+                menu.setStyleSheet(
+                    "QMenu{background:#252525;border:1px solid #444;border-radius:6px;}"
+                    "QMenu::item{padding:9px 22px;color:#F5F5F5;font-size:11pt;}"
+                    "QMenu::item:selected{background:#722F37;border-radius:4px;}"
+                )
+                menu.addAction("✏️  Editar producto",
+                               lambda: self._editar_producto(pd))
+                menu.addAction("➕  Agregar stock",
+                               lambda: self._agregar_stock_rapido(pd))
+                menu.addAction("⚖️  Ajuste de stock",
+                               lambda: self._ajustar_stock_producto(pd))
+                menu.addAction("📋  Ver lotes / cosechas",
+                               lambda: self._ver_lotes(pd))
+                return menu
+
+            btn_acc.clicked.connect(
+                lambda _, b=btn_acc, pd=producto_dict:
+                    _make_menu(pd).exec(b.mapToGlobal(
+                        b.rect().bottomLeft())))
+
+            # Botón eliminar
+            btn_del = QPushButton("🗑  Borrar")
+            btn_del.setFixedHeight(32)
+            btn_del.setMinimumWidth(85)
             btn_del.setToolTip("Eliminar producto")
             btn_del.setStyleSheet(
-                "QPushButton{background:#B71C1C;color:white;border-radius:4px;}"
-                "QPushButton:hover{background:#C62828;}"
+                "QPushButton{background:#7F0000;color:white;border-radius:6px;"
+                "font-size:10pt;padding:0 12px;}"
+                "QPushButton:hover{background:#B71C1C;}"
             )
             btn_del.clicked.connect(
                 lambda _, pd=producto_dict: self._eliminar_producto(pd))
 
-            btn_ajuste = QPushButton("⚖️")
-            btn_ajuste.setFixedSize(32, 32)
-            btn_ajuste.setToolTip("Ajuste manual de stock (rotura, robo, etc.)")
-            btn_ajuste.setStyleSheet(
-                "QPushButton{background:#4A2900;color:white;border-radius:4px;}"
-                "QPushButton:hover{background:#E65100;}")
-            btn_ajuste.clicked.connect(
-                lambda _, pd=producto_dict: self._ajustar_stock_producto(pd))
-
-            btn_lotes = QPushButton("📋")
-            btn_lotes.setFixedSize(32, 32)
-            btn_lotes.setToolTip("Ver lotes / cosechas")
-            btn_lotes.setStyleSheet(
-                "QPushButton{background:#1A3040;color:white;border-radius:4px;}"
-                "QPushButton:hover{background:#1565C0;}")
-            btn_lotes.clicked.connect(
-                lambda _, pd=producto_dict: self._ver_lotes(pd))
-
-            acc_lay.addWidget(btn_edit)
-            acc_lay.addWidget(btn_stock)
-            acc_lay.addWidget(btn_ajuste)
-            acc_lay.addWidget(btn_lotes)
+            acc_lay.addWidget(btn_acc)
             acc_lay.addWidget(btn_del)
             self.tabla_productos.setCellWidget(i, 7, acc_widget)
             self.tabla_productos.setRowHeight(i, 48)
@@ -1513,13 +1654,9 @@ class StockWidget(QWidget):
 
         # ── Barra de controles (2 filas) ──────────────────────
         ctrl_w = QWidget()
-        ctrl_lay = QVBoxLayout(ctrl_w)
+        ctrl_lay = QHBoxLayout(ctrl_w)
         ctrl_lay.setContentsMargins(0, 4, 0, 0)
-        ctrl_lay.setSpacing(6)
-
-        # Fila 1: selección + ajuste porcentual
-        fila1 = QHBoxLayout()
-        fila1.setSpacing(8)
+        ctrl_lay.setSpacing(8)
 
         btn_sel = QPushButton("☑  Todos")
         btn_sel.setObjectName("btn_secundario")
@@ -1527,51 +1664,30 @@ class StockWidget(QWidget):
         btn_desel = QPushButton("☐  Ninguno")
         btn_desel.setObjectName("btn_secundario")
         btn_desel.clicked.connect(lambda: self._prec_seleccionar(False))
-        fila1.addWidget(btn_sel)
-        fila1.addWidget(btn_desel)
+        ctrl_lay.addWidget(btn_sel)
+        ctrl_lay.addWidget(btn_desel)
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.VLine)
         sep1.setStyleSheet("color:#444;")
-        fila1.addWidget(sep1)
+        ctrl_lay.addWidget(sep1)
 
-        fila1.addWidget(QLabel("% a seleccionados:"))
+        ctrl_lay.addWidget(QLabel("% a seleccionados:"))
         self.prec_spin_pct = QDoubleSpinBox()
         self.prec_spin_pct.setRange(-99, 9999)
         self.prec_spin_pct.setDecimals(1)
         self.prec_spin_pct.setSingleStep(5)
         self.prec_spin_pct.setSuffix(" %")
         self.prec_spin_pct.setMinimumWidth(90)
-        fila1.addWidget(self.prec_spin_pct)
+        ctrl_lay.addWidget(self.prec_spin_pct)
         btn_aplicar_pct = QPushButton("Aplicar %")
         btn_aplicar_pct.setStyleSheet(
             "QPushButton{background:#1565C0;color:white;font-weight:600;"
             "border-radius:5px;padding:5px 12px;}"
             "QPushButton:hover{background:#1976D2;}")
         btn_aplicar_pct.clicked.connect(self._prec_aplicar_pct)
-        fila1.addWidget(btn_aplicar_pct)
-        fila1.addStretch()
-
-        # Fila 2: precio fijo + confirmar
-        fila2 = QHBoxLayout()
-        fila2.setSpacing(8)
-
-        fila2.addWidget(QLabel("Precio fijo a seleccionados:"))
-        self.prec_spin_fijo = QDoubleSpinBox()
-        self.prec_spin_fijo.setRange(0, 9999999)
-        self.prec_spin_fijo.setDecimals(2)
-        self.prec_spin_fijo.setSingleStep(100)
-        self.prec_spin_fijo.setPrefix("$ ")
-        self.prec_spin_fijo.setMinimumWidth(120)
-        fila2.addWidget(self.prec_spin_fijo)
-        btn_aplicar_fijo = QPushButton("Aplicar precio")
-        btn_aplicar_fijo.setStyleSheet(
-            "QPushButton{background:#6A1B9A;color:white;font-weight:600;"
-            "border-radius:5px;padding:5px 12px;}"
-            "QPushButton:hover{background:#7B1FA2;}")
-        btn_aplicar_fijo.clicked.connect(self._prec_aplicar_fijo)
-        fila2.addWidget(btn_aplicar_fijo)
-        fila2.addStretch()
+        ctrl_lay.addWidget(btn_aplicar_pct)
+        ctrl_lay.addStretch()
 
         btn_confirmar = QPushButton("✅  Confirmar cambios")
         btn_confirmar.setStyleSheet(
@@ -1579,10 +1695,8 @@ class StockWidget(QWidget):
             "border-radius:6px;padding:6px 18px;}"
             "QPushButton:hover{background:#388E3C;}")
         btn_confirmar.clicked.connect(self._prec_confirmar)
-        fila2.addWidget(btn_confirmar)
+        ctrl_lay.addWidget(btn_confirmar)
 
-        ctrl_lay.addLayout(fila1)
-        ctrl_lay.addLayout(fila2)
         lay.addWidget(ctrl_w)
         self._prec_spins = {}   # {producto_id: (row, spin)}
         return w
@@ -1697,22 +1811,6 @@ class StockWidget(QWidget):
                 spin = self.prec_tabla.cellWidget(row, 4)
                 if spin:
                     spin.setValue(round(original * (1 + pct / 100), 2))
-                    aplicados += 1
-        if aplicados == 0:
-            QMessageBox.information(self, "Sin selección",
-                "Marcá al menos un producto (☑) antes de aplicar.")
-
-    def _prec_aplicar_fijo(self):
-        precio = self.prec_spin_fijo.value()
-        aplicados = 0
-        for row in range(self.prec_tabla.rowCount()):
-            if self.prec_tabla.isRowHidden(row):
-                continue
-            chk = self.prec_tabla.item(row, 0)
-            if chk and chk.checkState() == Qt.CheckState.Checked:
-                spin = self.prec_tabla.cellWidget(row, 4)
-                if spin:
-                    spin.setValue(precio)
                     aplicados += 1
         if aplicados == 0:
             QMessageBox.information(self, "Sin selección",
