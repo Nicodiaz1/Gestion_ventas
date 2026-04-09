@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialog, QTextEdit, QComboBox, QCheckBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -138,26 +138,64 @@ class ConfigPanel(QWidget):
         tab_about = QWidget()
         lay_about = QVBoxLayout(tab_about)
         lay_about.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay_about.setSpacing(10)
 
         lbl_logo = QLabel("🍷")
         lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_logo.setStyleSheet("font-size: 60pt;")
         lay_about.addWidget(lbl_logo)
 
+        from version import VERSION_ACTUAL
         for texto, estilo in [
-            ("Vinoteca — Sistema de Gestión", "font-size:18pt; font-weight:800; color:#C9A84C;"),
-            ("Versión 1.0.0", "color:#888; font-size:11pt;"),
+            ("Vinoteca — Sistema de Gestión", "font-size:16pt; font-weight:800; color:#C9A84C;"),
+            (f"Versión {VERSION_ACTUAL}", "color:#888; font-size:11pt;"),
             ("Desarrollado con Python + PyQt6", "color:#666; font-size:10pt;"),
-            ("Base de datos: SQLite (offline) + SQL Server (sync)", "color:#555; font-size:9pt;"),
         ]:
             lbl = QLabel(texto)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet(estilo)
             lay_about.addWidget(lbl)
 
+        lay_about.addSpacing(16)
+
+        self.lbl_update_estado = QLabel("")
+        self.lbl_update_estado.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_update_estado.setStyleSheet("color:#AAAAAA; font-size:10pt;")
+        lay_about.addWidget(self.lbl_update_estado)
+
+        btn_check = QPushButton("🔄  Buscar actualización")
+        btn_check.setObjectName("btn_secundario")
+        btn_check.setFixedWidth(220)
+        btn_check.clicked.connect(lambda: self._buscar_actualizacion(VERSION_ACTUAL))
+        lay_about.addWidget(btn_check, alignment=Qt.AlignmentFlag.AlignCenter)
+
         tabs.addTab(tab_about, "ℹ️  Acerca de")
 
         lay.addWidget(tabs, 1)
+
+    def _buscar_actualizacion(self, version_actual: str):
+        from config import GITHUB_USUARIO, GITHUB_REPO, BASE_DIR
+        from sync.updater import UpdateChecker, DialogoActualizacion
+
+        self.lbl_update_estado.setText("Buscando actualizaciones...")
+        self.lbl_update_estado.setStyleSheet("color:#AAAAAA; font-size:10pt;")
+
+        self._checker = UpdateChecker(GITHUB_USUARIO, GITHUB_REPO, version_actual)
+
+        def _on_update(version_nueva, download_url):
+            self.lbl_update_estado.setText(f"¡Nueva versión disponible: v{version_nueva}!")
+            self.lbl_update_estado.setStyleSheet("color:#C9A84C; font-size:10pt; font-weight:700;")
+            dlg = DialogoActualizacion(version_nueva, download_url, version_actual, BASE_DIR, self)
+            dlg.exec()
+
+        def _on_finished():
+            if self.lbl_update_estado.text() == "Buscando actualizaciones...":
+                self.lbl_update_estado.setText("✅  Ya tenés la versión más reciente.")
+                self.lbl_update_estado.setStyleSheet("color:#4CAF50; font-size:10pt;")
+
+        self._checker.update_disponible.connect(_on_update)
+        self._checker.finished.connect(_on_finished)
+        self._checker.start()
 
     def _cargar_config(self):
         self.txt_nombre_negocio.setText(db.get_config("nombre_negocio", "La Vinoteca"))
