@@ -10,7 +10,7 @@ QMainWindow, QDialog, QWidget {
     background-color: #1A1A1A;
     color: #F5F5F5;
     font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 13pt;
+    font-size: 10pt;
 }
 
 /* ── Sidebar ───────────────────────────────────────────── */
@@ -23,9 +23,9 @@ QMainWindow, QDialog, QWidget {
     color: #CCCCCC;
     border: none;
     border-radius: 8px;
-    padding: 12px 16px;
+    padding: 10px 14px;
     text-align: left;
-    font-size: 13pt;
+    font-size: 10pt;
     font-weight: 500;
 }
 #sidebar QPushButton:hover {
@@ -55,9 +55,9 @@ QPushButton {
     color: white;
     border: none;
     border-radius: 8px;
-    padding: 9px 20px;
+    padding: 7px 16px;
     font-weight: 600;
-    font-size: 13pt;
+    font-size: 10pt;
 }
 QPushButton:hover   { background-color: #8B3A44; }
 QPushButton:pressed { background-color: #5C2530; }
@@ -115,9 +115,9 @@ QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
     background-color: #2C2C2C;
     border: 1px solid #444;
     border-radius: 6px;
-    padding: 7px 10px;
+    padding: 6px 10px;
     color: #F5F5F5;
-    font-size: 13pt;
+    font-size: 10pt;
 }
 QLineEdit:focus, QTextEdit:focus, QSpinBox:focus,
 QDoubleSpinBox:focus, QComboBox:focus {

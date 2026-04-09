@@ -860,7 +860,6 @@ class CuentasProveedorWidget(QWidget):
         self.an_tabla.setAlternatingRowColors(True)
         self.an_tabla.verticalHeader().setVisible(False)
         self.an_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.an_tabla.setMaximumWidth(420)
         split.addWidget(self.an_tabla)
 
         # Canvas gráfico línea de tiempo
