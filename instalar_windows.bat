@@ -70,7 +70,11 @@ echo.
 
 REM ── Paso 4: Acceso directo en el escritorio ──────────────
 echo [4/4] Creando acceso directo en el escritorio...
-powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'Vinoteca.lnk')); $s.TargetPath = 'pythonw'; $s.Arguments = '\"' + (Get-Location).Path + '\main.py\"'; $s.WorkingDirectory = (Get-Location).Path; $s.IconLocation = (Get-Location).Path + '\assets\icon.ico'; $s.Save()"
+
+REM Eliminar acceso directo viejo al .exe si existe
+IF EXIST "%USERPROFILE%\Desktop\Vinoteca.lnk" del "%USERPROFILE%\Desktop\Vinoteca.lnk"
+
+powershell -Command "$appDir = (Get-Location).Path; $pyExe = python -c 'import sys,os; print(os.path.join(os.path.dirname(sys.executable), \"pythonw.exe\"))'; if (-not (Test-Path $pyExe)) { $pyExe = 'pythonw' }; $ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'Vinoteca.lnk')); $s.TargetPath = $pyExe; $s.Arguments = '\"' + $appDir + '\main.py\"'; $s.WorkingDirectory = $appDir; $s.IconLocation = $appDir + '\assets\icon.ico'; $s.Save()"
 echo       Acceso directo creado en el escritorio. OK
 echo.
 
