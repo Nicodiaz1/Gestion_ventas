@@ -1,17 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
-REM ╔═══════════════════════════════════════════════════════════════╗
-REM ║  construir_exe.bat  –  Genera Vinoteca.exe para Windows      ║
-REM ║                                                               ║
-REM ║  Ejecutar UNA sola vez (o cada vez que actualices la app).   ║
-REM ║  Al finalizar tendrás un ícono de copa de vino en el         ║
-REM ║  Escritorio para abrir Vinoteca todos los días.              ║
-REM ╚═══════════════════════════════════════════════════════════════╝
+REM ================================================================
+REM  construir_exe.bat  - Genera Vinoteca.exe para Windows
+REM  Ejecutar UNA sola vez (o cada vez que actualices la app).
+REM ================================================================
 
 echo.
-echo  ╔═══════════════════════════════════════════════════╗
-echo  ║          VINOTECA  –  Construir .exe              ║
-echo  ╚═══════════════════════════════════════════════════╝
+echo  ================================================
+echo   VINOTECA  -  Construir .exe
+echo  ================================================
 echo.
 
 REM ── Posicionarse en la carpeta del script ───────────────────────────────────
@@ -73,42 +70,31 @@ IF ERRORLEVEL 1 (
     pause & exit /b 1
 )
 
-REM ── 6. Crear acceso directo en el Escritorio ─────────────────────────────────
+REM -- 6. Crear acceso directo en el Escritorio -----------------------------------
 echo.
 echo [6/6] Creando acceso directo en el Escritorio...
 
 set "EXEPATH=%~dp0dist\Vinoteca\Vinoteca.exe"
 set "WORKDIR=%~dp0dist\Vinoteca"
 
-REM Usar variables de entorno para pasar paths a PowerShell (evita problemas de escape)
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$exe = $env:EXEPATH; $work = $env:WORKDIR; ^
-   $ws = New-Object -ComObject WScript.Shell; ^
-   $dt = [Environment]::GetFolderPath('Desktop'); ^
-   $sc = $ws.CreateShortcut($dt + '\Vinoteca.lnk'); ^
-   $sc.TargetPath      = $exe; ^
-   $sc.WorkingDirectory = $work; ^
-   $sc.IconLocation    = $exe + ',0'; ^
-   $sc.Description     = 'Sistema de Gestion La Vinoteca'; ^
-   $sc.Save(); ^
-   Write-Host '        Acceso directo creado.'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$exe = $env:EXEPATH; $work = $env:WORKDIR; $ws = New-Object -ComObject WScript.Shell; $dt = [Environment]::GetFolderPath('Desktop'); $sc = $ws.CreateShortcut($dt + '\Vinoteca.lnk'); $sc.TargetPath = $exe; $sc.WorkingDirectory = $work; $sc.IconLocation = $exe + ',0'; $sc.Description = 'Sistema de Gestion La Vinoteca'; $sc.Save(); Write-Host 'Acceso directo creado.'"
 
 IF ERRORLEVEL 1 (
     echo  [AVISO] No se pudo crear el acceso directo automaticamente.
-    echo  Podes crearlo manualmente: clic derecho sobre
-    echo  "%~dp0dist\Vinoteca\Vinoteca.exe" → Enviar a → Escritorio
+    echo  Podes crearlo manualmente: clic derecho en
+    echo  "%~dp0dist\Vinoteca\Vinoteca.exe" y elegir "Enviar a - Escritorio"
 )
 
-REM ── Listo ────────────────────────────────────────────────────────────────────
+REM -- Listo -----------------------------------------------------------------------
 echo.
-echo  ╔═══════════════════════════════════════════════════╗
-echo  ║  ✓  Listo! Ahora tenes en el Escritorio:         ║
-echo  ║                                                   ║
-echo  ║     [Copa de vino]  Vinoteca                      ║
-echo  ║                                                   ║
-echo  ║  Doble clic para abrir todos los dias.            ║
-echo  ║  No hace falta Python ni CMD para usarla.        ║
-echo  ╚═══════════════════════════════════════════════════╝
+echo  ================================================
+echo   LISTO! Ahora tenes en el Escritorio:
+echo.
+echo     Vinoteca  (icono de la app)
+echo.
+echo   Doble clic para abrir todos los dias.
+echo   No hace falta Python ni CMD para usarla.
+echo  ================================================
 echo.
 echo  Ubicacion del ejecutable:
 echo  %~dp0dist\Vinoteca\Vinoteca.exe
