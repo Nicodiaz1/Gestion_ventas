@@ -89,7 +89,7 @@ class UpdateDownloader(QThread):
 
     # Carpetas y archivos que NUNCA se tocan (datos del negocio)
     PRESERVAR = {"db", "exports", ".venv", "__pycache__",
-                 "config.py", "version.py"}
+                 "config.py"}
 
     def __init__(self, download_url: str, base_dir: str):
         super().__init__()
