@@ -10,9 +10,29 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from PyQt6.QtWidgets import QApplication, QSplashScreen, QLabel
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QApplication, QSplashScreen, QLabel, QComboBox
+from PyQt6.QtCore import Qt, QTimer, QEvent
 from PyQt6.QtGui import QPixmap, QFont, QColor
+
+
+def _patch_combo_popup():
+    """Ensancha el popup de todo QComboBox al texto más largo, globalmente."""
+    _orig = QComboBox.showPopup
+
+    def _showPopup(self):
+        _orig(self)
+        view = self.view()
+        fm   = view.fontMetrics()
+        ancho_max = max(
+            (fm.horizontalAdvance(self.itemText(i)) for i in range(self.count())),
+            default=0,
+        )
+        ancho_necesario = ancho_max + 52   # margen para scrollbar y padding
+        if ancho_necesario > self.width():
+            view.setMinimumWidth(ancho_necesario)
+
+    QComboBox.showPopup = _showPopup
+
 
 from ui.main_window import MainWindow
 from version import VERSION_ACTUAL
@@ -21,6 +41,7 @@ from config import GITHUB_USUARIO, GITHUB_REPO, CHEQUEAR_UPDATES
 
 def main():
     app = QApplication(sys.argv)
+    _patch_combo_popup()
     app.setApplicationName("Vinoteca")
     app.setOrganizationName("Vinoteca")
     app.setApplicationVersion(VERSION_ACTUAL)

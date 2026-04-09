@@ -329,19 +329,56 @@ class ReportesWidget(QWidget):
 
         # Gráfico
         if HAS_MATPLOTLIB and por_dia:
+            import numpy as np
             fechas = [r["fecha"] for r in por_dia]
-            totales = [r["total"] for r in por_dia]
+            n_dias = len(fechas)
+
+            mp_keys   = ["efectivo", "debito", "credito", "transferencia", "qr"]
+            mp_labels = ["Efectivo", "Débito", "Crédito", "Transferencia", "QR"]
+            mp_colors = ["#4CAF50", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4"]
+
+            # Solo mostrar medios de pago con al menos un valor > 0
+            activos = [(k, l, c) for k, l, c in zip(mp_keys, mp_labels, mp_colors)
+                       if any((r[k] or 0) > 0 for r in por_dia)]
+            n_mp = len(activos) or 1
+
             self.canvas_periodo.fig.clear()
             ax = self.canvas_periodo.fig.add_subplot(111)
-            ax.set_facecolor("#1E1E1E")
-            ax.bar(range(len(fechas)), totales, color="#722F37", alpha=0.85)
-            ax.set_xticks(range(len(fechas)))
-            xticklabels = [f[-5:] for f in fechas]  # MM-DD
-            ax.set_xticklabels(xticklabels, rotation=45, color="#AAAAAA", fontsize=8)
+            ax.set_facecolor("#1A1A1A")
+            self.canvas_periodo.fig.patch.set_facecolor("#1A1A1A")
+
+            xs = np.arange(n_dias)
+            bar_width = min(0.7 / n_mp, 0.25)   # barras más angostas si hay muchos medios
+            offsets = np.linspace(-(n_mp - 1) / 2, (n_mp - 1) / 2, n_mp) * bar_width
+
+            all_max = 0
+            for (key, label, color), offset in zip(activos, offsets):
+                vals = [r[key] or 0 for r in por_dia]
+                bars = ax.bar(xs + offset, vals, bar_width,
+                              color=color, alpha=0.90, label=label,
+                              edgecolor="#111", linewidth=0.4)
+                # Total encima de cada barra individual
+                for rect, v in zip(bars, vals):
+                    if v > 0:
+                        ax.text(rect.get_x() + rect.get_width() / 2,
+                                rect.get_height() + max(vals) * 0.015 if max(vals) else 1,
+                                f"${v:,.0f}",
+                                ha="center", va="bottom",
+                                color=color, fontsize=6.8, fontweight="bold")
+                        all_max = max(all_max, v)
+
+            ax.set_xticks(xs)
+            ax.set_xticklabels([f[-5:] for f in fechas],
+                               rotation=45 if n_dias > 5 else 0,
+                               color="#AAAAAA", fontsize=8)
             ax.tick_params(axis="y", colors="#AAAAAA")
             ax.set_ylabel("Total ($)", color="#AAAAAA")
-            ax.set_title("Ventas por día", color="#F5F5F5")
+            ax.set_title("Ventas por día — por medio de pago", color="#F5F5F5", fontsize=10)
             ax.spines[:].set_color("#333")
+            ax.set_ylim(0, all_max * 1.18 if all_max else 1)
+            ax.legend(loc="upper left", fontsize=7.5,
+                      facecolor="#2A2A2A", edgecolor="#444",
+                      labelcolor="#F5F5F5", framealpha=0.85, ncol=min(n_mp, 3))
             self.canvas_periodo.fig.tight_layout()
             self.canvas_periodo.draw()
 

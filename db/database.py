@@ -160,7 +160,45 @@ INSERT OR IGNORE INTO configuracion (clave, valor, tipo) VALUES
     ('moneda', '$', 'string'),
     ('stock_min_alerta', '3', 'int'),
     ('iva_porcentaje', '21', 'float'),
-    ('ultima_sincronizacion', '', 'string');
+    ('ultima_sincronizacion', '', 'string'),
+    ('dias_alerta_vencimiento', '30', 'int'),
+    ('dias_alerta_facturas',    '7',  'int');
+
+-- ── Facturas de proveedores (cuentas corrientes) ─────────────
+CREATE TABLE IF NOT EXISTS facturas_proveedores (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    proveedor_id     INTEGER REFERENCES proveedores(id),
+    numero_factura   TEXT,
+    descripcion      TEXT,
+    monto_total      REAL    NOT NULL DEFAULT 0,
+    monto_pagado     REAL    NOT NULL DEFAULT 0,
+    fecha_emision    DATE    NOT NULL,
+    fecha_vencimiento DATE   NOT NULL,
+    estado           TEXT    NOT NULL DEFAULT 'pendiente',
+    -- pendiente | pagada | vencida | saldo_favor
+    dias_alerta      INTEGER NOT NULL DEFAULT 7,  -- días antes del vencimiento para avisar
+    notas            TEXT,
+    creado_en        DATETIME DEFAULT CURRENT_TIMESTAMP,
+    modificado_en    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_facturas_proveedor  ON facturas_proveedores(proveedor_id);
+CREATE INDEX IF NOT EXISTS idx_facturas_vencimiento ON facturas_proveedores(fecha_vencimiento);
+CREATE INDEX IF NOT EXISTS idx_facturas_estado      ON facturas_proveedores(estado);
+
+-- ── Lotes de stock (vencimientos y cosechas de vino) ────────────
+CREATE TABLE IF NOT EXISTS lotes (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id       INTEGER NOT NULL REFERENCES productos(id),
+    cantidad          INTEGER NOT NULL DEFAULT 0,
+    cosecha           INTEGER,          -- año de producción (vinos)
+    fecha_vencimiento DATE,             -- NULL si no aplica
+    motivo            TEXT DEFAULT 'Ingreso de mercancía',
+    fecha_ingreso     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    notas             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lotes_producto    ON lotes(producto_id);
+CREATE INDEX IF NOT EXISTS idx_lotes_vencimiento ON lotes(fecha_vencimiento);
 """
 
 
@@ -174,6 +212,53 @@ def init_db():
         if "unidades_por_caja" not in columnas:
             conn.execute("ALTER TABLE productos ADD COLUMN unidades_por_caja INTEGER DEFAULT 1")
             print("[DB] Migración: columna unidades_por_caja agregada.")
+        # Migración: tabla facturas_proveedores (por si la DB es anterior)
+        tablas = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if "facturas_proveedores" not in tablas:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS facturas_proveedores (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    proveedor_id     INTEGER REFERENCES proveedores(id),
+                    numero_factura   TEXT,
+                    descripcion      TEXT,
+                    monto_total      REAL    NOT NULL DEFAULT 0,
+                    monto_pagado     REAL    NOT NULL DEFAULT 0,
+                    fecha_emision    DATE    NOT NULL,
+                    fecha_vencimiento DATE   NOT NULL,
+                    estado           TEXT    NOT NULL DEFAULT 'pendiente',
+                    notas            TEXT,
+                    creado_en        DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    modificado_en    DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_facturas_proveedor   ON facturas_proveedores(proveedor_id);
+                CREATE INDEX IF NOT EXISTS idx_facturas_vencimiento ON facturas_proveedores(fecha_vencimiento);
+                CREATE INDEX IF NOT EXISTS idx_facturas_estado      ON facturas_proveedores(estado);
+            """)
+            print("[DB] Migración: tabla facturas_proveedores creada.")
+        if "lotes" not in tablas:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS lotes (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto_id       INTEGER NOT NULL REFERENCES productos(id),
+                    cantidad          INTEGER NOT NULL DEFAULT 0,
+                    cosecha           INTEGER,
+                    fecha_vencimiento DATE,
+                    motivo            TEXT DEFAULT 'Ingreso de mercancía',
+                    fecha_ingreso     DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    notas             TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_lotes_producto    ON lotes(producto_id);
+                CREATE INDEX IF NOT EXISTS idx_lotes_vencimiento ON lotes(fecha_vencimiento);
+            """)
+            print("[DB] Migración: tabla lotes creada.")
+        # Migración: columna dias_alerta en facturas_proveedores
+        cols_facturas = [r[1] for r in conn.execute(
+            "PRAGMA table_info(facturas_proveedores)").fetchall()]
+        if "facturas_proveedores" in tablas and "dias_alerta" not in cols_facturas:
+            conn.execute(
+                "ALTER TABLE facturas_proveedores ADD COLUMN dias_alerta INTEGER NOT NULL DEFAULT 7")
+            print("[DB] Migración: columna dias_alerta agregada a facturas_proveedores.")
     print(f"[DB] Base de datos inicializada en: {DB_PATH}")
 
 
@@ -240,6 +325,27 @@ def actualizar_producto(producto_id: int, datos: dict):
     valores = list(datos.values()) + [producto_id]
     with get_connection() as conn:
         conn.execute(f"UPDATE productos SET {sets} WHERE id = ?", valores)
+
+
+def actualizar_precios_masivo(porcentaje: float, categoria_id: int = None):
+    """Aplica un % de aumento/descuento a precio_venta (y costo si se indica).
+    categoria_id=None → todos los productos activos."""
+    factor = 1 + porcentaje / 100
+    with get_connection() as conn:
+        if categoria_id:
+            conn.execute("""
+                UPDATE productos
+                SET precio_venta = ROUND(precio_venta * ?, 2),
+                    modificado_en = ?
+                WHERE activo = 1 AND categoria_id = ?
+            """, (factor, datetime.now().isoformat(), categoria_id))
+        else:
+            conn.execute("""
+                UPDATE productos
+                SET precio_venta = ROUND(precio_venta * ?, 2),
+                    modificado_en = ?
+                WHERE activo = 1
+            """, (factor, datetime.now().isoformat()))
 
 
 def eliminar_producto(producto_id: int):
@@ -349,14 +455,17 @@ def historial_movimientos(producto_id: int = None, limite: int = 100) -> list:
 # ══════════════════════════════════════════════════════════════
 
 def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
-                    cuotas: int = 1, notas: str = "") -> int:
+                    cuotas: int = 1, notas: str = "",
+                    recargo_pct: float = 0) -> int:
     """
     items: [{"producto_id": int, "cantidad": int, "precio_unit": float}, ...]
+    recargo_pct: porcentaje de recargo (+) o descuento (-). Ej: 15 = +15%, -10 = -10%
     Retorna el ID de la venta creada.
     """
     ahora = datetime.now()
     subtotal = sum(i["cantidad"] * i["precio_unit"] for i in items)
-    total = subtotal - descuento
+    base  = max(0.0, subtotal - descuento)
+    total = base * (1 + recargo_pct / 100)
 
     with get_connection() as conn:
         cur = conn.execute("""
@@ -498,7 +607,14 @@ def reporte_ventas_por_periodo(desde: str, hasta: str) -> dict:
         """, (desde, hasta)).fetchone()
 
         por_dia = conn.execute("""
-            SELECT fecha, SUM(total) as total, COUNT(*) as ventas
+            SELECT fecha,
+                   SUM(total) as total,
+                   COUNT(*) as ventas,
+                   SUM(CASE WHEN medio_pago='efectivo'      THEN total ELSE 0 END) as efectivo,
+                   SUM(CASE WHEN medio_pago='debito'        THEN total ELSE 0 END) as debito,
+                   SUM(CASE WHEN medio_pago='credito'       THEN total ELSE 0 END) as credito,
+                   SUM(CASE WHEN medio_pago='transferencia' THEN total ELSE 0 END) as transferencia,
+                   SUM(CASE WHEN medio_pago='qr'            THEN total ELSE 0 END) as qr
             FROM ventas WHERE fecha BETWEEN ? AND ? AND anulada = 0
             GROUP BY fecha ORDER BY fecha
         """, (desde, hasta)).fetchall()
@@ -607,3 +723,262 @@ def set_config(clave: str, valor, tipo: str = "string"):
 if __name__ == "__main__":
     init_db()
     print("[OK] Base de datos creada correctamente.")
+
+
+# ══════════════════════════════════════════════════════════════
+#  FACTURAS DE PROVEEDORES (cuentas corrientes)
+# ══════════════════════════════════════════════════════════════
+
+def _recalc_estado(monto_total: float, monto_pagado: float,
+                   fecha_vencimiento: str) -> str:
+    """Calcula el estado lógico de una factura."""
+    from datetime import date
+    saldo = round(monto_total - monto_pagado, 2)
+    if saldo <= 0:
+        return "saldo_favor" if monto_pagado > monto_total else "pagada"
+    hoy = date.today().isoformat()
+    return "vencida" if fecha_vencimiento < hoy else "pendiente"
+
+
+def crear_factura_proveedor(datos: dict) -> int:
+    estado = _recalc_estado(
+        datos.get("monto_total", 0),
+        datos.get("monto_pagado", 0),
+        datos["fecha_vencimiento"]
+    )
+    with get_connection() as conn:
+        cur = conn.execute("""
+            INSERT INTO facturas_proveedores
+            (proveedor_id, numero_factura, descripcion, monto_total,
+             monto_pagado, fecha_emision, fecha_vencimiento, estado, dias_alerta, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datos.get("proveedor_id"),
+            datos.get("numero_factura", ""),
+            datos.get("descripcion", ""),
+            datos.get("monto_total", 0),
+            datos.get("monto_pagado", 0),
+            datos["fecha_emision"],
+            datos["fecha_vencimiento"],
+            estado,
+            datos.get("dias_alerta", 7),
+            datos.get("notas", ""),
+        ))
+        return cur.lastrowid
+
+
+def actualizar_factura_proveedor(factura_id: int, datos: dict):
+    datos["modificado_en"] = datetime.now().isoformat()
+    # Recalcular estado automáticamente
+    if "monto_total" in datos or "monto_pagado" in datos or "fecha_vencimiento" in datos:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT monto_total, monto_pagado, fecha_vencimiento FROM facturas_proveedores WHERE id=?",
+                (factura_id,)
+            ).fetchone()
+        if row:
+            mt  = datos.get("monto_total",       row["monto_total"])
+            mp  = datos.get("monto_pagado",      row["monto_pagado"])
+            fv  = datos.get("fecha_vencimiento", row["fecha_vencimiento"])
+            datos["estado"] = _recalc_estado(mt, mp, fv)
+    sets   = ", ".join(f"{k} = ?" for k in datos)
+    valores = list(datos.values()) + [factura_id]
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE facturas_proveedores SET {sets} WHERE id = ?", valores)
+
+
+def eliminar_factura_proveedor(factura_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM facturas_proveedores WHERE id = ?", (factura_id,))
+
+
+def obtener_facturas_proveedor(proveedor_id: int = None,
+                                estado: str = None) -> list:
+    """Todas las facturas enriquecidas con datos del proveedor."""
+    with get_connection() as conn:
+        conds  = []
+        params = []
+        if proveedor_id:
+            conds.append("f.proveedor_id = ?")
+            params.append(proveedor_id)
+        if estado:
+            conds.append("f.estado = ?")
+            params.append(estado)
+        where = ("WHERE " + " AND ".join(conds)) if conds else ""
+        return conn.execute(f"""
+            SELECT f.*,
+                   pr.nombre   AS proveedor_nombre,
+                   pr.telefono AS proveedor_telefono,
+                   pr.email    AS proveedor_email,
+                   (f.monto_total - f.monto_pagado) AS saldo
+            FROM facturas_proveedores f
+            LEFT JOIN proveedores pr ON pr.id = f.proveedor_id
+            {where}
+            ORDER BY f.fecha_vencimiento ASC
+        """, params).fetchall()
+
+
+def resumen_deuda_proveedores() -> list:
+    """Deuda total agrupada por proveedor."""
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT pr.id,
+                   pr.nombre   AS proveedor_nombre,
+                   pr.telefono AS proveedor_telefono,
+                   COUNT(f.id) AS total_facturas,
+                   SUM(CASE WHEN f.estado IN ('pendiente','vencida')
+                            THEN f.monto_total - f.monto_pagado ELSE 0 END) AS deuda_total,
+                   SUM(CASE WHEN f.estado = 'vencida'
+                            THEN f.monto_total - f.monto_pagado ELSE 0 END) AS deuda_vencida,
+                   SUM(CASE WHEN f.estado = 'saldo_favor'
+                            THEN f.monto_pagado - f.monto_total ELSE 0 END) AS saldo_favor
+            FROM proveedores pr
+            LEFT JOIN facturas_proveedores f ON f.proveedor_id = pr.id
+            WHERE pr.activo = 1
+            GROUP BY pr.id
+            ORDER BY deuda_total DESC
+        """).fetchall()
+
+
+def facturas_por_vencer() -> list:
+    """Facturas pendientes que vencen dentro del plazo de alerta de cada factura."""
+    from datetime import date
+    hoy = date.today().isoformat()
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT f.*,
+                   pr.nombre AS proveedor_nombre,
+                   (f.monto_total - f.monto_pagado) AS saldo
+            FROM facturas_proveedores f
+            LEFT JOIN proveedores pr ON pr.id = f.proveedor_id
+            WHERE f.estado = 'pendiente'
+              AND f.fecha_vencimiento >= ?
+              AND f.fecha_vencimiento <= date('now', '+' || f.dias_alerta || ' days')
+            ORDER BY f.fecha_vencimiento ASC
+        """, (hoy,)).fetchall()
+
+
+def compras_por_periodo(desde: str, hasta: str, proveedor_id: int = None) -> dict:
+    """
+    Devuelve compras (facturas_proveedores) agrupadas por mes y por proveedor,
+    junto con las ventas del mismo período para calcular ganancia estimada.
+    """
+    with get_connection() as conn:
+        cond_prov  = "AND f.proveedor_id = ?" if proveedor_id else ""
+        params_prov = [proveedor_id] if proveedor_id else []
+
+        # Totales del período por proveedor
+        por_proveedor = conn.execute(f"""
+            SELECT pr.nombre AS proveedor_nombre,
+                   COUNT(f.id)              AS total_facturas,
+                   SUM(f.monto_total)       AS compras_total,
+                   SUM(f.monto_pagado)      AS pagado_total,
+                   SUM(f.monto_total - f.monto_pagado) AS deuda_total
+            FROM facturas_proveedores f
+            LEFT JOIN proveedores pr ON pr.id = f.proveedor_id
+            WHERE f.fecha_emision BETWEEN ? AND ?
+              {cond_prov}
+            GROUP BY f.proveedor_id
+            ORDER BY compras_total DESC
+        """, [desde, hasta] + params_prov).fetchall()
+
+        # Compras agrupadas por mes para la línea de tiempo
+        por_mes = conn.execute(f"""
+            SELECT strftime('%Y-%m', f.fecha_emision) AS mes,
+                   pr.nombre AS proveedor_nombre,
+                   SUM(f.monto_total) AS compras_total
+            FROM facturas_proveedores f
+            LEFT JOIN proveedores pr ON pr.id = f.proveedor_id
+            WHERE f.fecha_emision BETWEEN ? AND ?
+              {cond_prov}
+            GROUP BY mes, f.proveedor_id
+            ORDER BY mes ASC
+        """, [desde, hasta] + params_prov).fetchall()
+
+        # Ventas del mismo período
+        ventas = conn.execute("""
+            SELECT SUM(total) AS ventas_total, COUNT(*) AS cantidad_ventas
+            FROM ventas
+            WHERE fecha BETWEEN ? AND ? AND anulada = 0
+        """, (desde, hasta)).fetchone()
+
+        # Ventas por mes para superponer en el gráfico
+        ventas_mes = conn.execute("""
+            SELECT strftime('%Y-%m', fecha) AS mes, SUM(total) AS ventas_total
+            FROM ventas
+            WHERE fecha BETWEEN ? AND ? AND anulada = 0
+            GROUP BY mes ORDER BY mes ASC
+        """, (desde, hasta)).fetchall()
+
+        return {
+            "por_proveedor": por_proveedor,
+            "por_mes":       por_mes,
+            "ventas":        ventas,
+            "ventas_mes":    ventas_mes,
+        }
+
+
+# ══════════════════════════════════════════════════════════════
+#  LOTES (vencimientos y cosechas de vino)
+# ══════════════════════════════════════════════════════════════
+
+def crear_lote(producto_id: int, cantidad: int,
+              fecha_vencimiento: str = None, cosecha: int = None,
+              motivo: str = "Ingreso de mercancía", notas: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute("""
+            INSERT INTO lotes (producto_id, cantidad, fecha_vencimiento, cosecha, motivo, notas)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (producto_id, cantidad, fecha_vencimiento, cosecha, motivo, notas))
+        return cur.lastrowid
+
+
+def obtener_lotes_producto(producto_id: int) -> list:
+    """Lotes activos (cantidad > 0) de un producto, ordenados por cosecha y vencimiento."""
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT * FROM lotes
+            WHERE producto_id = ? AND cantidad > 0
+            ORDER BY
+                CASE WHEN cosecha IS NULL THEN 1 ELSE 0 END, cosecha ASC,
+                CASE WHEN fecha_vencimiento IS NULL THEN 1 ELSE 0 END, fecha_vencimiento ASC
+        """, (producto_id,)).fetchall()
+
+
+def lotes_por_vencer(dias: int = 30) -> list:
+    """Lotes cuya fecha_vencimiento cae dentro de los próximos N días (sin contar vencidos)."""
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT l.*, p.nombre AS producto_nombre
+            FROM lotes l
+            JOIN productos p ON p.id = l.producto_id
+            WHERE l.fecha_vencimiento IS NOT NULL
+              AND l.fecha_vencimiento >= date('now')
+              AND l.fecha_vencimiento <= date('now', ?)
+              AND l.cantidad > 0
+              AND p.activo = 1
+            ORDER BY l.fecha_vencimiento ASC
+        """, (f"+{dias} days",)).fetchall()
+
+
+def lotes_vencidos() -> list:
+    """Lotes ya vencidos (fecha_vencimiento < hoy) con cantidad > 0."""
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT l.*, p.nombre AS producto_nombre
+            FROM lotes l
+            JOIN productos p ON p.id = l.producto_id
+            WHERE l.fecha_vencimiento IS NOT NULL
+              AND l.fecha_vencimiento < date('now')
+              AND l.cantidad > 0
+              AND p.activo = 1
+            ORDER BY l.fecha_vencimiento ASC
+        """).fetchall()
+
+
+def actualizar_cantidad_lote(lote_id: int, nueva_cantidad: int):
+    with get_connection() as conn:
+        conn.execute("UPDATE lotes SET cantidad = ? WHERE id = ?",
+                     (nueva_cantidad, lote_id))
+

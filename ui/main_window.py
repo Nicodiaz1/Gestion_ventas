@@ -75,7 +75,7 @@ class MainWindow(QMainWindow):
         # ── Sidebar ──────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(210)
+        sidebar.setFixedWidth(220)
         sb_lay = QVBoxLayout(sidebar)
         sb_lay.setContentsMargins(8, 0, 8, 16)
         sb_lay.setSpacing(2)
@@ -102,7 +102,8 @@ class MainWindow(QMainWindow):
             ("🛒  Punto de Venta",    0, "F5"),
             ("📦  Stock",             1, "F6"),
             ("📊  Reportes",          2, "F7"),
-            ("⚙️   Configuración",    3, "F8"),
+            ("🧾  Cuentas",           3, "F9"),
+            ("⚙️   Configuración",    4, "F8"),
         ]
         for texto, idx, atajo in nav_items:
             btn = QPushButton(texto)
@@ -129,7 +130,7 @@ class MainWindow(QMainWindow):
         sb_lay.addWidget(self.btn_sync)
 
         # Info de versión
-        lbl_ver = QLabel("v1.0.0")
+        lbl_ver = QLabel("v1.1")
         lbl_ver.setStyleSheet("color:#555; font-size:8pt; padding:4px 16px;")
         sb_lay.addWidget(lbl_ver)
 
@@ -153,6 +154,11 @@ class MainWindow(QMainWindow):
         from ui.reportes import ReportesWidget
         self.reportes_widget = ReportesWidget()
         self.stack.addWidget(self.reportes_widget)
+
+        # Cuentas corrientes de proveedores
+        from ui.cuentas_proveedor import CuentasProveedorWidget
+        self.cuentas_widget = CuentasProveedorWidget()
+        self.stack.addWidget(self.cuentas_widget)
 
         # Configuración
         from ui.config_panel import ConfigPanel
@@ -195,6 +201,8 @@ class MainWindow(QMainWindow):
             self.stock_widget.cargar_productos()
         elif idx == 2:
             self.reportes_widget._actualizar_resumen_hoy()
+        elif idx == 3:
+            self.cuentas_widget.cargar()
         elif idx == 0:
             QTimer.singleShot(50, self.pos_widget.scan_input.setFocus)
 

@@ -46,6 +46,13 @@ class ConfigPanel(QWidget):
         self.spin_stock_min = QSpinBox()
         self.spin_stock_min.setRange(0, 999)
         form_neg.addRow("Alerta stock mínimo por defecto:", self.spin_stock_min)
+
+        self.spin_dias_venc = QSpinBox()
+        self.spin_dias_venc.setRange(1, 365)
+        self.spin_dias_venc.setSuffix(" días")
+        self.spin_dias_venc.setToolTip(
+            "Cuántos días antes del vencimiento se muestra la alerta en la pantalla de stock")
+        form_neg.addRow("⏰ Alerta vencimiento anticipada:", self.spin_dias_venc)
         lay_neg.addWidget(grp_negocio)
 
         btn_guardar_neg = QPushButton("💾  Guardar configuración")
@@ -156,6 +163,7 @@ class ConfigPanel(QWidget):
         self.txt_nombre_negocio.setText(db.get_config("nombre_negocio", "La Vinoteca"))
         self.txt_moneda.setText(db.get_config("moneda", "$"))
         self.spin_stock_min.setValue(int(db.get_config("stock_min_alerta", 3)))
+        self.spin_dias_venc.setValue(int(db.get_config("dias_alerta_vencimiento", 30)))
         self.txt_sql_server.setText(db.get_config("sql_server", ""))
         self.txt_sql_db.setText(db.get_config("sql_database", "vinoteca"))
         self.txt_sql_user.setText(db.get_config("sql_username", ""))
@@ -165,6 +173,7 @@ class ConfigPanel(QWidget):
         db.set_config("nombre_negocio", self.txt_nombre_negocio.text())
         db.set_config("moneda", self.txt_moneda.text())
         db.set_config("stock_min_alerta", self.spin_stock_min.value(), "int")
+        db.set_config("dias_alerta_vencimiento", self.spin_dias_venc.value(), "int")
         QMessageBox.information(self, "✅  Guardado", "Configuración guardada correctamente.")
 
     def _guardar_sql(self):

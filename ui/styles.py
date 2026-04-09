@@ -7,7 +7,7 @@ QMainWindow, QDialog, QWidget {
     background-color: #1A1A1A;
     color: #F5F5F5;
     font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 11pt;
+    font-size: 13pt;
 }
 
 /* ── Sidebar ───────────────────────────────────────────── */
@@ -22,7 +22,7 @@ QMainWindow, QDialog, QWidget {
     border-radius: 8px;
     padding: 12px 16px;
     text-align: left;
-    font-size: 11pt;
+    font-size: 13pt;
     font-weight: 500;
 }
 #sidebar QPushButton:hover {
@@ -54,7 +54,7 @@ QPushButton {
     border-radius: 8px;
     padding: 9px 20px;
     font-weight: 600;
-    font-size: 11pt;
+    font-size: 13pt;
 }
 QPushButton:hover   { background-color: #8B3A44; }
 QPushButton:pressed { background-color: #5C2530; }
@@ -95,14 +95,14 @@ QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
     border-radius: 6px;
     padding: 7px 10px;
     color: #F5F5F5;
-    font-size: 11pt;
+    font-size: 13pt;
 }
 QLineEdit:focus, QTextEdit:focus, QSpinBox:focus,
 QDoubleSpinBox:focus, QComboBox:focus {
     border: 2px solid #722F37;
 }
 QLineEdit#scan_input {
-    font-size: 14pt;
+    font-size: 16pt;
     padding: 10px 14px;
     border: 2px solid #C9A84C;
     border-radius: 8px;
@@ -123,10 +123,44 @@ QTableWidget {
     border: none;
     border-radius: 8px;
     selection-background-color: #722F37;
-    alternate-background-color: #222222;
+    alternate-background-color: #252525;
 }
-QTableWidget::item { padding: 6px 10px; border: none; }
+QTableWidget::item { padding: 6px 10px; border: none; color: #F5F5F5; }
+QTableWidget::item:alternate { color: #F5F5F5; }
 QTableWidget::item:selected { background-color: #722F37; color: white; }
+QTableWidget::indicator {
+    width: 16px; height: 16px;
+    border: 2px solid #888;
+    border-radius: 3px;
+    background: #2A2A2A;
+    margin: 2px;
+}
+QTableWidget::indicator:unchecked { background: #2A2A2A; }
+QTableWidget::indicator:checked {
+    background: #722F37;
+    border-color: #9E3A43;
+    image: none;
+}
+QTableWidget::indicator:checked:hover { background: #8B3540; }
+QTableWidget::indicator:unchecked:hover { border-color: #BBB; background: #383838; }
+
+/* ── Lista (buscador y otros QListWidget) ─────────────── */
+QListWidget {
+    background-color: #1E1E1E;
+    alternate-background-color: #252525;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #F5F5F5;
+}
+QListWidget::item {
+    padding: 8px 12px;
+    border-bottom: 1px solid #2E2E2E;
+    color: #F5F5F5;
+}
+QListWidget::item:alternate { color: #F5F5F5; background-color: #252525; }
+QListWidget::item:selected { background-color: #722F37; color: white; }
+QListWidget::item:hover { background-color: #2E2E2E; }
+
 QHeaderView::section {
     background-color: #2C2C2C;
     color: #C9A84C;

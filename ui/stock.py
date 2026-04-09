@@ -7,9 +7,9 @@ from PyQt6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QDialog, QFormLayout, QComboBox, QSpinBox,
     QDoubleSpinBox, QAbstractItemView, QTabWidget, QTextEdit,
-    QFrame, QCheckBox, QSizePolicy
+    QFrame, QCheckBox, QSizePolicy, QDateEdit
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QDate
 from PyQt6.QtGui import QColor, QFont
 import sys, os
 
@@ -71,6 +71,28 @@ class DialogoProducto(QDialog):
         self.spin_precio.setSingleStep(100)
         self.spin_precio.setPrefix("$ ")
         form.addRow("Precio de venta *:", self.spin_precio)
+
+        # Aumento rápido por porcentaje
+        if self.producto:   # solo al editar, no al crear
+            porc_row = QHBoxLayout()
+            self.spin_aumento = QDoubleSpinBox()
+            self.spin_aumento.setRange(-99, 9999)
+            self.spin_aumento.setDecimals(1)
+            self.spin_aumento.setSingleStep(5)
+            self.spin_aumento.setSuffix(" %")
+            self.spin_aumento.setValue(0)
+            self.spin_aumento.setToolTip(
+                "Aplicá un % de aumento o descuento sobre el precio de venta actual.\n"
+                "Positivo = aumento, negativo = descuento.")
+            btn_aplicar = QPushButton("Aplicar %")
+            btn_aplicar.setToolTip("Recalcula el precio con el porcentaje ingresado")
+            btn_aplicar.clicked.connect(self._aplicar_porcentaje)
+            porc_row.addWidget(self.spin_aumento)
+            porc_row.addWidget(btn_aplicar)
+            porc_row.addStretch()
+            form.addRow("📈 Ajuste porcentual:", porc_row)
+        else:
+            self.spin_aumento = None
 
         # Precio de costo
         self.spin_costo = QDoubleSpinBox()
@@ -142,6 +164,17 @@ class DialogoProducto(QDialog):
         self.cmb_categoria.addItem("— Sin categoría —", None)
         for c in db.obtener_categorias():
             self.cmb_categoria.addItem(c["nombre"], c["id"])
+
+    def _aplicar_porcentaje(self):
+        if self.spin_aumento is None:
+            return
+        pct = self.spin_aumento.value()
+        if pct == 0:
+            return
+        precio_actual = self.spin_precio.value()
+        nuevo = round(precio_actual * (1 + pct / 100), 2)
+        self.spin_precio.setValue(nuevo)
+        self.spin_aumento.setValue(0)
 
     def _toggle_codigo(self, state):
         self.txt_codigo.setEnabled(state != Qt.CheckState.Checked.value)
@@ -224,6 +257,189 @@ class DialogoProducto(QDialog):
 #  Diálogo: Carga rápida de stock por escaneo
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+#  Diálogo: Ajuste manual de stock (rotura, robo, merma…)
+# ─────────────────────────────────────────────────────────────
+
+class DialogoAjusteStock(QDialog):
+    def __init__(self, parent, producto: dict):
+        super().__init__(parent)
+        self.producto = producto
+        self.setWindowTitle(f"⚖️  Ajuste de stock — {producto['nombre']}")
+        self.setMinimumWidth(400)
+        self.setModal(True)
+        self._build_ui()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setSpacing(12)
+        lay.setContentsMargins(24, 20, 24, 20)
+
+        lbl_nombre = QLabel(f"<b>{self.producto['nombre']}</b>")
+        lbl_nombre.setStyleSheet("font-size:13pt;")
+        lay.addWidget(lbl_nombre)
+
+        self.lbl_stock = QLabel(f"Stock actual: <b>{self.producto['stock_actual']}</b>")
+        self.lbl_stock.setStyleSheet("color:#AAAAAA;")
+        lay.addWidget(self.lbl_stock)
+
+        linea = QFrame()
+        linea.setFrameShape(QFrame.Shape.HLine)
+        linea.setStyleSheet("color:#333;")
+        lay.addWidget(linea)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+
+        self.cmb_motivo = QComboBox()
+        self.cmb_motivo.addItems([
+            "Rotura", "Robo / Hurto", "Vencimiento / Merma",
+            "Corrección de inventario", "Donación", "Otro"
+        ])
+        form.addRow("Motivo del ajuste:", self.cmb_motivo)
+
+        self.spin_nuevo = QSpinBox()
+        self.spin_nuevo.setRange(0, 99999)
+        self.spin_nuevo.setValue(self.producto["stock_actual"])
+        self.spin_nuevo.valueChanged.connect(self._actualizar_diferencia)
+        form.addRow("Nuevo stock a fijar:", self.spin_nuevo)
+
+        self.lbl_diferencia = QLabel("")
+        form.addRow("Diferencia:", self.lbl_diferencia)
+
+        self.txt_notas = QLineEdit()
+        self.txt_notas.setPlaceholderText("Detalle adicional (opcional)")
+        form.addRow("Notas:", self.txt_notas)
+
+        lay.addLayout(form)
+
+        btn_row = QHBoxLayout()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("btn_secundario")
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("✅  Confirmar ajuste")
+        btn_ok.setStyleSheet(
+            "QPushButton{background:#E65100;color:white;font-weight:700;"
+            "border-radius:6px;padding:8px 20px;}"
+            "QPushButton:hover{background:#F57C00;}"
+        )
+        btn_ok.clicked.connect(self.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
+        lay.addLayout(btn_row)
+
+        self._actualizar_diferencia()
+
+    def _actualizar_diferencia(self):
+        diff = self.spin_nuevo.value() - self.producto["stock_actual"]
+        if diff < 0:
+            self.lbl_diferencia.setText(
+                f"<b style='color:#EF5350'>{diff} unidades (reducción)</b>")
+        elif diff > 0:
+            self.lbl_diferencia.setText(
+                f"<b style='color:#66BB6A'>+{diff} unidades (aumento)</b>")
+        else:
+            self.lbl_diferencia.setText("Sin cambio")
+
+    def get_values(self) -> tuple:
+        """Retorna (nuevo_stock, motivo_con_notas)."""
+        motivo = self.cmb_motivo.currentText()
+        notas  = self.txt_notas.text().strip()
+        return self.spin_nuevo.value(), f"{motivo}{': ' + notas if notas else ''}"
+
+
+# ─────────────────────────────────────────────────────────────
+#  Diálogo: Ver lotes / cosechas de un producto
+# ─────────────────────────────────────────────────────────────
+
+class DialogoLotesProducto(QDialog):
+    def __init__(self, parent, producto: dict):
+        super().__init__(parent)
+        self.producto = producto
+        self.setWindowTitle(f"📋  Lotes / Cosechas — {producto['nombre']}")
+        self.setMinimumSize(620, 380)
+        self.setModal(True)
+        self._build_ui()
+        self._cargar()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setSpacing(10)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        lbl = QLabel(f"<b>{self.producto['nombre']}</b>"
+                     f"  —  Stock total: {self.producto['stock_actual']}")
+        lbl.setStyleSheet("font-size:12pt; color:#C9A84C;")
+        lay.addWidget(lbl)
+
+        self.tabla = QTableWidget(0, 5)
+        self.tabla.setHorizontalHeaderLabels(
+            ["Cosecha", "Vencimiento", "Cantidad", "Fecha ingreso", "Motivo"])
+        self.tabla.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch)
+        self.tabla.setColumnWidth(0, 90)
+        self.tabla.setColumnWidth(1, 130)
+        self.tabla.setColumnWidth(2, 90)
+        self.tabla.setColumnWidth(3, 110)
+        self.tabla.setAlternatingRowColors(True)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        lay.addWidget(self.tabla)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_ok = QPushButton("Cerrar")
+        btn_ok.clicked.connect(self.accept)
+        btn_row.addWidget(btn_ok)
+        lay.addLayout(btn_row)
+
+    def _cargar(self):
+        from datetime import date
+        hoy   = date.today()
+        lotes = db.obtener_lotes_producto(self.producto["id"])
+        self.tabla.setRowCount(len(lotes))
+
+        for i, l in enumerate(lotes):
+            cosecha = str(l["cosecha"]) if l["cosecha"] else "—"
+            self.tabla.setItem(i, 0, QTableWidgetItem(cosecha))
+
+            venc_str = l["fecha_vencimiento"]
+            if venc_str:
+                dias = (date.fromisoformat(venc_str) - hoy).days
+                venc_item = QTableWidgetItem(f"{venc_str}  ({'+' if dias >= 0 else ''}{dias}d)")
+                if dias < 0:
+                    venc_item.setForeground(QColor("#9E9E9E"))
+                elif dias <= 7:
+                    venc_item.setForeground(QColor("#EF5350"))
+                elif dias <= 30:
+                    venc_item.setForeground(QColor("#FF9800"))
+                else:
+                    venc_item.setForeground(QColor("#66BB6A"))
+            else:
+                venc_item = QTableWidgetItem("—")
+                venc_item.setForeground(QColor("#666"))
+            self.tabla.setItem(i, 1, venc_item)
+
+            cant_item = QTableWidgetItem(str(l["cantidad"]))
+            cant_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla.setItem(i, 2, cant_item)
+            self.tabla.setItem(i, 3, QTableWidgetItem(str(l["fecha_ingreso"])[:10]))
+            self.tabla.setItem(i, 4, QTableWidgetItem(l["motivo"] or ""))
+            self.tabla.setRowHeight(i, 36)
+
+        if not lotes:
+            self.tabla.setRowCount(1)
+            item = QTableWidgetItem("No hay lotes registrados para este producto")
+            item.setForeground(QColor("#666"))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla.setItem(0, 0, item)
+            self.tabla.setSpan(0, 0, 1, 5)
+
+
+# ─────────────────────────────────────────────────────────────
+#  Diálogo: Carga de stock
+# ─────────────────────────────────────────────────────────────
+
 class DialogoCargaStock(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -259,17 +475,20 @@ class DialogoCargaStock(QDialog):
         scan_row.addWidget(btn_buscar)
         lay.addLayout(scan_row)
 
-        # Tabla de carga — 6 columnas
-        self.tabla = QTableWidget(0, 6)
+        # Tabla de carga — 7 columnas
+        self.tabla = QTableWidget(0, 8)
         self.tabla.setHorizontalHeaderLabels([
-            "Código", "Producto", "Stock\nactual", "Modo de ingreso", "Cantidad", "Total unidades"
+            "Código", "Producto", "Stock\nactual", "Modo de ingreso",
+            "Cantidad", "Total\nunidades", "Cosecha\n(año)", "Fecha\nvencim."
         ])
         self.tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tabla.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.tabla.setColumnWidth(0, 100)
         self.tabla.setColumnWidth(2, 70)
         self.tabla.setColumnWidth(4, 90)
-        self.tabla.setColumnWidth(5, 130)
+        self.tabla.setColumnWidth(5, 110)
+        self.tabla.setColumnWidth(6, 90)
+        self.tabla.setColumnWidth(7, 120)
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         lay.addWidget(self.tabla, 1)
@@ -330,7 +549,10 @@ class DialogoCargaStock(QDialog):
             self.items[pid]["cantidad"] += 1
         else:
             modo_default = "caja" if upc > 1 else "unidad"
-            self.items[pid] = {"producto": producto, "cantidad": 1, "modo": modo_default}
+            self.items[pid] = {
+                "producto": producto, "cantidad": 1, "modo": modo_default,
+                "lote": {"cosecha": None, "fecha_vencimiento": None, "notas": ""}
+            }
         self._refrescar_tabla()
         QTimer.singleShot(50, self.scan_input.setFocus)
 
@@ -390,13 +612,64 @@ class DialogoCargaStock(QDialog):
             color = "#C9A84C" if (upc > 1 and entry["modo"] == "caja") else "#AAAAAA"
             lbl_total.setStyleSheet(f"color:{color}; font-size:11pt; padding:4px;")
             self.tabla.setCellWidget(i, 5, lbl_total)
-            self.tabla.setRowHeight(i, 52)
+
+            # Col 6: Año de cosecha (spinner inline)
+            lote = entry.get("lote", {})
+            spin_c = QSpinBox()
+            spin_c.setRange(0, 2100)
+            spin_c.setSpecialValueText("—")
+            spin_c.setValue(lote.get("cosecha") or 0)
+            spin_c.setToolTip("Año de cosecha / producción")
+            spin_c.setStyleSheet("background:#2C2C2C; color:#C9A84C; border:1px solid #444;")
+            spin_c.valueChanged.connect(
+                lambda v, p=pid: self._set_lote_field(p, "cosecha", v if v > 0 else None))
+            self.tabla.setCellWidget(i, 6, spin_c)
+
+            # Col 7: Fecha de vencimiento (date picker + botón limpiar)
+            min_date = QDate(2000, 1, 1)
+            date_v = QDateEdit()
+            date_v.setCalendarPopup(True)
+            date_v.setDisplayFormat("dd/MM/yy")
+            date_v.setSpecialValueText("— S/F")
+            date_v.setMinimumDate(min_date)
+            date_v.setDate(
+                QDate.fromString(lote["fecha_vencimiento"], "yyyy-MM-dd")
+                if lote.get("fecha_vencimiento")
+                else min_date
+            )
+            date_v.setStyleSheet("background:#2C2C2C; color:#AAAAAA; border:1px solid #444;")
+            date_v.dateChanged.connect(
+                lambda d, p=pid: self._set_lote_field(
+                    p, "fecha_vencimiento",
+                    d.toString("yyyy-MM-dd") if d != min_date else None))
+
+            btn_clear_v = QPushButton("✕")
+            btn_clear_v.setFixedSize(22, 22)
+            btn_clear_v.setToolTip("Quitar fecha de vencimiento")
+            btn_clear_v.setStyleSheet(
+                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:4px;"
+                "font-size:9pt;font-weight:700;border:none;}"
+                "QPushButton:hover{background:#7F0000;}")
+            btn_clear_v.clicked.connect(lambda _, dv=date_v, md=min_date: dv.setDate(md))
+
+            cell_venc = QWidget()
+            cell_lay  = QHBoxLayout(cell_venc)
+            cell_lay.setContentsMargins(2, 2, 2, 2)
+            cell_lay.setSpacing(3)
+            cell_lay.addWidget(date_v)
+            cell_lay.addWidget(btn_clear_v)
+            self.tabla.setCellWidget(i, 7, cell_venc)
+            self.tabla.setRowHeight(i, 56)
 
         # Resumen total
         n = len(items_list)
         self.lbl_resumen.setText(
             f"📊  {n} producto(s)  →  {total_unidades} unidades en total a ingresar" if n else ""
         )
+
+    def _set_lote_field(self, pid: int, campo: str, valor):
+        if pid in self.items:
+            self.items[pid]["lote"][campo] = valor
 
     def _cambiar_modo(self, pid: int, row: int):
         if pid not in self.items:
@@ -448,6 +721,16 @@ class DialogoCargaStock(QDialog):
                 else:
                     detalle_motivo = motivo
                 db.agregar_stock(pid, unidades_a_agregar, detalle_motivo)
+                # Registrar lote si tiene cosecha o vencimiento
+                lote = entry.get("lote", {})
+                if lote.get("cosecha") or lote.get("fecha_vencimiento"):
+                    db.crear_lote(
+                        pid, unidades_a_agregar,
+                        fecha_vencimiento=lote.get("fecha_vencimiento"),
+                        cosecha=lote.get("cosecha"),
+                        motivo=detalle_motivo,
+                        notas=lote.get("notas", "")
+                    )
             QMessageBox.information(
                 self, "✅  Stock actualizado",
                 f"Se ingresaron {total_unidades} unidades en {len(self.items)} producto(s)."
@@ -824,6 +1107,10 @@ class StockWidget(QWidget):
         tab_catalogo.setLayout(lay_cat)
         tabs.addTab(tab_catalogo, "📋  Catálogo")
 
+        # Tab 1: Precios
+        tab_precios = self._build_tab_precios()
+        tabs.addTab(tab_precios, "💰  Precios")
+
         # Tab 2: Restockear
         tab_restock = QWidget()
         lay_rs = QVBoxLayout(tab_restock)
@@ -862,6 +1149,42 @@ class StockWidget(QWidget):
 
         tab_restock.setLayout(lay_rs)
         tabs.addTab(tab_restock, "🛒  Restockear")
+
+        # Tab 2: Próximos vencimientos
+        tab_venc = QWidget()
+        lay_venc = QVBoxLayout(tab_venc)
+        lay_venc.setSpacing(8)
+
+        venc_header = QHBoxLayout()
+        venc_header.addWidget(QLabel("Mostrar vencimientos en los próximos:"))
+        self.spin_dias_venc = QSpinBox()
+        self.spin_dias_venc.setRange(1, 365)
+        self.spin_dias_venc.setValue(30)
+        self.spin_dias_venc.setSuffix(" días")
+        venc_header.addWidget(self.spin_dias_venc)
+        btn_refresh_venc = QPushButton("🔄  Actualizar")
+        btn_refresh_venc.clicked.connect(self._cargar_vencimientos)
+        venc_header.addWidget(btn_refresh_venc)
+        venc_header.addStretch()
+        lay_venc.addLayout(venc_header)
+
+        self.tabla_vencimientos = QTableWidget(0, 6)
+        self.tabla_vencimientos.setHorizontalHeaderLabels([
+            "Producto", "Cosecha", "Cant. lote", "Vencimiento", "Días restantes", "Motivo"
+        ])
+        self.tabla_vencimientos.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch)
+        self.tabla_vencimientos.setColumnWidth(1, 80)
+        self.tabla_vencimientos.setColumnWidth(2, 90)
+        self.tabla_vencimientos.setColumnWidth(3, 110)
+        self.tabla_vencimientos.setColumnWidth(4, 120)
+        self.tabla_vencimientos.setAlternatingRowColors(True)
+        self.tabla_vencimientos.verticalHeader().setVisible(False)
+        self.tabla_vencimientos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        lay_venc.addWidget(self.tabla_vencimientos)
+
+        tab_venc.setLayout(lay_venc)
+        tabs.addTab(tab_venc, "⏰  Vencimientos")
 
         # Tab 3: Sin rotación
         tab_sin_rot = QWidget()
@@ -912,19 +1235,29 @@ class StockWidget(QWidget):
 
     def cargar_productos(self):
         self.todos_productos = db.obtener_todos_productos()
+        # Pre-cargar cosechas de todos los productos de una vez
+        self._cosechas_cache = {}
+        for p in self.todos_productos:
+            lotes = db.obtener_lotes_producto(p["id"])
+            cosechas = sorted({l["cosecha"] for l in lotes if l["cosecha"]})
+            if cosechas:
+                self._cosechas_cache[p["id"]] = cosechas
         self._mostrar_productos(self.todos_productos)
         self._mostrar_alertas()
 
     def _mostrar_alertas(self):
+        msgs = []
         bajos = db.productos_bajo_stock()
         if bajos:
             nombres = ", ".join(p["nombre"] for p in bajos[:5])
-            extra = f" +{len(bajos)-5} más" if len(bajos) > 5 else ""
-            self.lbl_alerta.setText(
-                f"⚠️  Stock bajo en: {nombres}{extra}"
-            )
-        else:
-            self.lbl_alerta.setText("")
+            extra   = f" +{len(bajos)-5} más" if len(bajos) > 5 else ""
+            msgs.append(f"⚠️  Stock bajo: {nombres}{extra}")
+        venciendo = db.lotes_por_vencer(int(db.get_config("dias_alerta_vencimiento", 7)))
+        if venciendo:
+            nom_v = ", ".join(l["producto_nombre"] for l in venciendo[:3])
+            extra_v = f" +{len(venciendo)-3} más" if len(venciendo) > 3 else ""
+            msgs.append(f"⏰  Próx. vencim.: {nom_v}{extra_v}")
+        self.lbl_alerta.setText("   |   ".join(msgs) if msgs else "")
 
     def _mostrar_productos(self, productos: list):
         self.tabla_productos.setRowCount(len(productos))
@@ -932,7 +1265,18 @@ class StockWidget(QWidget):
             self.tabla_productos.setItem(i, 0, QTableWidgetItem(str(p["id"])))
             self.tabla_productos.setItem(i, 1, QTableWidgetItem(
                 p["codigo_barras"] or ("S/C" if p["sin_codigo"] else "—")))
-            self.tabla_productos.setItem(i, 2, QTableWidgetItem(p["nombre"]))
+
+            # Nombre + cosechas inline
+            nombre    = p["nombre"]
+            cosechas  = getattr(self, "_cosechas_cache", {}).get(p["id"], [])
+            if cosechas:
+                años_txt = "  🍷 " + " · ".join(str(c) for c in cosechas)
+                nombre_item = QTableWidgetItem(nombre + años_txt)
+                nombre_item.setToolTip("Cosechas en stock: " + ", ".join(str(c) for c in cosechas))
+                nombre_item.setForeground(QColor("#C9A84C"))
+            else:
+                nombre_item = QTableWidgetItem(nombre)
+            self.tabla_productos.setItem(i, 2, nombre_item)
             self.tabla_productos.setItem(i, 3, QTableWidgetItem(p["categoria_nombre"] or ""))
             self.tabla_productos.setItem(i, 4, QTableWidgetItem(f"${p['precio_venta']:,.2f}"))
             self.tabla_productos.setItem(i, 5, QTableWidgetItem(f"${p['precio_costo']:,.2f}"))
@@ -979,11 +1323,31 @@ class StockWidget(QWidget):
             btn_del.clicked.connect(
                 lambda _, pd=producto_dict: self._eliminar_producto(pd))
 
+            btn_ajuste = QPushButton("⚖️")
+            btn_ajuste.setFixedSize(32, 32)
+            btn_ajuste.setToolTip("Ajuste manual de stock (rotura, robo, etc.)")
+            btn_ajuste.setStyleSheet(
+                "QPushButton{background:#4A2900;color:white;border-radius:4px;}"
+                "QPushButton:hover{background:#E65100;}")
+            btn_ajuste.clicked.connect(
+                lambda _, pd=producto_dict: self._ajustar_stock_producto(pd))
+
+            btn_lotes = QPushButton("📋")
+            btn_lotes.setFixedSize(32, 32)
+            btn_lotes.setToolTip("Ver lotes / cosechas")
+            btn_lotes.setStyleSheet(
+                "QPushButton{background:#1A3040;color:white;border-radius:4px;}"
+                "QPushButton:hover{background:#1565C0;}")
+            btn_lotes.clicked.connect(
+                lambda _, pd=producto_dict: self._ver_lotes(pd))
+
             acc_lay.addWidget(btn_edit)
             acc_lay.addWidget(btn_stock)
+            acc_lay.addWidget(btn_ajuste)
+            acc_lay.addWidget(btn_lotes)
             acc_lay.addWidget(btn_del)
             self.tabla_productos.setCellWidget(i, 7, acc_widget)
-            self.tabla_productos.setRowHeight(i, 46)
+            self.tabla_productos.setRowHeight(i, 48)
 
     def _filtrar(self):
         texto = self.txt_filtro.text().lower()
@@ -998,10 +1362,14 @@ class StockWidget(QWidget):
 
     def _tab_changed(self, idx):
         if idx == 1:
-            self._cargar_restock()
+            self._prec_cargar()
         elif idx == 2:
-            self._cargar_sin_rotacion()
+            self._cargar_restock()
         elif idx == 3:
+            self._cargar_vencimientos()
+        elif idx == 4:
+            self._cargar_sin_rotacion()
+        elif idx == 5:
             self._cargar_historial()
 
     def _cargar_restock(self):
@@ -1100,10 +1468,385 @@ class StockWidget(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.cargar_productos()
 
+    # ── Tab Precios ───────────────────────────────────────────
+
+    def _build_tab_precios(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setSpacing(10)
+        lay.setContentsMargins(12, 12, 12, 12)
+
+        # ── Filtros ──────────────────────────────────────────
+        filtro_row = QHBoxLayout()
+        self.prec_txt_filtro = QLineEdit()
+        self.prec_txt_filtro.setPlaceholderText("🔍  Buscar producto por nombre…")
+        self.prec_txt_filtro.textChanged.connect(self._prec_filtrar)
+        filtro_row.addWidget(self.prec_txt_filtro, 1)
+
+        self.prec_cmb_cat = QComboBox()
+        self.prec_cmb_cat.addItem("Todas las categorías", None)
+        for c in db.obtener_categorias():
+            self.prec_cmb_cat.addItem(c["nombre"], c["id"])
+        self.prec_cmb_cat.currentIndexChanged.connect(self._prec_filtrar)
+        filtro_row.addWidget(self.prec_cmb_cat)
+        lay.addLayout(filtro_row)
+
+        # ── Tabla ─────────────────────────────────────────────
+        self.prec_tabla = QTableWidget(0, 6)
+        self.prec_tabla.setHorizontalHeaderLabels([
+            "☑", "Producto", "Categoría", "Precio actual", "Nuevo precio", "Cambio"
+        ])
+        self.prec_tabla.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        self.prec_tabla.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents)
+        self.prec_tabla.setColumnWidth(0, 44)
+        self.prec_tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.prec_tabla.setColumnWidth(3, 120)
+        self.prec_tabla.setColumnWidth(4, 140)
+        self.prec_tabla.setColumnWidth(5, 90)
+        self.prec_tabla.setAlternatingRowColors(True)
+        self.prec_tabla.verticalHeader().setVisible(False)
+        self.prec_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.prec_tabla.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        lay.addWidget(self.prec_tabla, 1)
+
+        # ── Barra de controles (2 filas) ──────────────────────
+        ctrl_w = QWidget()
+        ctrl_lay = QVBoxLayout(ctrl_w)
+        ctrl_lay.setContentsMargins(0, 4, 0, 0)
+        ctrl_lay.setSpacing(6)
+
+        # Fila 1: selección + ajuste porcentual
+        fila1 = QHBoxLayout()
+        fila1.setSpacing(8)
+
+        btn_sel = QPushButton("☑  Todos")
+        btn_sel.setObjectName("btn_secundario")
+        btn_sel.clicked.connect(lambda: self._prec_seleccionar(True))
+        btn_desel = QPushButton("☐  Ninguno")
+        btn_desel.setObjectName("btn_secundario")
+        btn_desel.clicked.connect(lambda: self._prec_seleccionar(False))
+        fila1.addWidget(btn_sel)
+        fila1.addWidget(btn_desel)
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.Shape.VLine)
+        sep1.setStyleSheet("color:#444;")
+        fila1.addWidget(sep1)
+
+        fila1.addWidget(QLabel("% a seleccionados:"))
+        self.prec_spin_pct = QDoubleSpinBox()
+        self.prec_spin_pct.setRange(-99, 9999)
+        self.prec_spin_pct.setDecimals(1)
+        self.prec_spin_pct.setSingleStep(5)
+        self.prec_spin_pct.setSuffix(" %")
+        self.prec_spin_pct.setMinimumWidth(90)
+        fila1.addWidget(self.prec_spin_pct)
+        btn_aplicar_pct = QPushButton("Aplicar %")
+        btn_aplicar_pct.setStyleSheet(
+            "QPushButton{background:#1565C0;color:white;font-weight:600;"
+            "border-radius:5px;padding:5px 12px;}"
+            "QPushButton:hover{background:#1976D2;}")
+        btn_aplicar_pct.clicked.connect(self._prec_aplicar_pct)
+        fila1.addWidget(btn_aplicar_pct)
+        fila1.addStretch()
+
+        # Fila 2: precio fijo + confirmar
+        fila2 = QHBoxLayout()
+        fila2.setSpacing(8)
+
+        fila2.addWidget(QLabel("Precio fijo a seleccionados:"))
+        self.prec_spin_fijo = QDoubleSpinBox()
+        self.prec_spin_fijo.setRange(0, 9999999)
+        self.prec_spin_fijo.setDecimals(2)
+        self.prec_spin_fijo.setSingleStep(100)
+        self.prec_spin_fijo.setPrefix("$ ")
+        self.prec_spin_fijo.setMinimumWidth(120)
+        fila2.addWidget(self.prec_spin_fijo)
+        btn_aplicar_fijo = QPushButton("Aplicar precio")
+        btn_aplicar_fijo.setStyleSheet(
+            "QPushButton{background:#6A1B9A;color:white;font-weight:600;"
+            "border-radius:5px;padding:5px 12px;}"
+            "QPushButton:hover{background:#7B1FA2;}")
+        btn_aplicar_fijo.clicked.connect(self._prec_aplicar_fijo)
+        fila2.addWidget(btn_aplicar_fijo)
+        fila2.addStretch()
+
+        btn_confirmar = QPushButton("✅  Confirmar cambios")
+        btn_confirmar.setStyleSheet(
+            "QPushButton{background:#2E7D32;color:white;font-weight:700;"
+            "border-radius:6px;padding:6px 18px;}"
+            "QPushButton:hover{background:#388E3C;}")
+        btn_confirmar.clicked.connect(self._prec_confirmar)
+        fila2.addWidget(btn_confirmar)
+
+        ctrl_lay.addLayout(fila1)
+        ctrl_lay.addLayout(fila2)
+        lay.addWidget(ctrl_w)
+        self._prec_spins = {}   # {producto_id: (row, spin)}
+        return w
+
+    def _prec_cargar(self):
+        """Carga todos los productos en la tabla de precios."""
+        self._prec_spins = {}
+        self.prec_tabla.setRowCount(0)
+        productos = self.todos_productos if hasattr(self, "todos_productos") else db.obtener_todos_productos()
+
+        self.prec_tabla.setRowCount(len(productos))
+        for i, p in enumerate(productos):
+            pid = p["id"]
+
+            # Col 0: checkbox
+            chk = QTableWidgetItem()
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            chk.setData(Qt.ItemDataRole.UserRole, pid)
+            chk.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.prec_tabla.setItem(i, 0, chk)
+
+            # Col 1: nombre
+            self.prec_tabla.setItem(i, 1, QTableWidgetItem(p["nombre"]))
+
+            # Col 2: categoría
+            cat = p["categoria_nombre"] if "categoria_nombre" in p.keys() else "—"
+            self.prec_tabla.setItem(i, 2, QTableWidgetItem(cat or "—"))
+
+            # Col 3: precio actual (readonly, guarda valor en UserRole)
+            precio_actual = p["precio_venta"] or 0
+            it_precio = QTableWidgetItem(f"$ {precio_actual:,.2f}")
+            it_precio.setData(Qt.ItemDataRole.UserRole, precio_actual)
+            it_precio.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.prec_tabla.setItem(i, 3, it_precio)
+
+            # Col 4: nuevo precio (spinbox editable individualmente)
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 9999999)
+            spin.setDecimals(2)
+            spin.setSingleStep(100)
+            spin.setPrefix("$ ")
+            spin.setValue(precio_actual)
+            spin.setStyleSheet(
+                "QDoubleSpinBox{background:#2C2C2C;color:#F5F5F5;"
+                "border:1px solid #444;border-radius:4px;padding:2px 4px;}")
+            spin.valueChanged.connect(
+                lambda v, row=i, orig=precio_actual:
+                    self._prec_actualizar_cambio(row, v, orig))
+            self.prec_tabla.setCellWidget(i, 4, spin)
+
+            # Col 5: cambio %
+            it_cambio = QTableWidgetItem("—")
+            it_cambio.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_cambio.setForeground(QColor("#666"))
+            self.prec_tabla.setItem(i, 5, it_cambio)
+
+            self.prec_tabla.setRowHeight(i, 44)
+            self._prec_spins[pid] = (i, spin)
+
+    def _prec_actualizar_cambio(self, row: int, nuevo: float, original: float):
+        it = self.prec_tabla.item(row, 5)
+        if not it:
+            return
+        if original == 0 or abs(nuevo - original) < 0.01:
+            it.setText("—")
+            it.setForeground(QColor("#666"))
+        elif nuevo > original:
+            pct = (nuevo - original) / original * 100
+            it.setText(f"▲ +{pct:.1f}%")
+            it.setForeground(QColor("#4CAF50"))
+        else:
+            pct = (original - nuevo) / original * 100
+            it.setText(f"▼ -{pct:.1f}%")
+            it.setForeground(QColor("#F44336"))
+
+    def _prec_filtrar(self):
+        texto  = self.prec_txt_filtro.text().lower()
+        cat_id = self.prec_cmb_cat.currentData()
+        for row in range(self.prec_tabla.rowCount()):
+            chk_item = self.prec_tabla.item(row, 0)
+            nom_item  = self.prec_tabla.item(row, 1)
+            if not chk_item or not nom_item:
+                continue
+            pid = chk_item.data(Qt.ItemDataRole.UserRole)
+            p   = next((x for x in self.todos_productos if x["id"] == pid), None)
+            if not p:
+                continue
+            match_texto = not texto or texto in p["nombre"].lower()
+            match_cat   = cat_id is None or p.get("categoria_id") == cat_id
+            self.prec_tabla.setRowHidden(row, not (match_texto and match_cat))
+
+    def _prec_seleccionar(self, seleccionar: bool):
+        estado = Qt.CheckState.Checked if seleccionar else Qt.CheckState.Unchecked
+        for row in range(self.prec_tabla.rowCount()):
+            if not self.prec_tabla.isRowHidden(row):
+                chk = self.prec_tabla.item(row, 0)
+                if chk:
+                    chk.setCheckState(estado)
+
+    def _prec_aplicar_pct(self):
+        pct = self.prec_spin_pct.value()
+        if pct == 0:
+            return
+        aplicados = 0
+        for row in range(self.prec_tabla.rowCount()):
+            if self.prec_tabla.isRowHidden(row):
+                continue
+            chk = self.prec_tabla.item(row, 0)
+            if chk and chk.checkState() == Qt.CheckState.Checked:
+                original = self.prec_tabla.item(row, 3).data(Qt.ItemDataRole.UserRole)
+                spin = self.prec_tabla.cellWidget(row, 4)
+                if spin:
+                    spin.setValue(round(original * (1 + pct / 100), 2))
+                    aplicados += 1
+        if aplicados == 0:
+            QMessageBox.information(self, "Sin selección",
+                "Marcá al menos un producto (☑) antes de aplicar.")
+
+    def _prec_aplicar_fijo(self):
+        precio = self.prec_spin_fijo.value()
+        aplicados = 0
+        for row in range(self.prec_tabla.rowCount()):
+            if self.prec_tabla.isRowHidden(row):
+                continue
+            chk = self.prec_tabla.item(row, 0)
+            if chk and chk.checkState() == Qt.CheckState.Checked:
+                spin = self.prec_tabla.cellWidget(row, 4)
+                if spin:
+                    spin.setValue(precio)
+                    aplicados += 1
+        if aplicados == 0:
+            QMessageBox.information(self, "Sin selección",
+                "Marcá al menos un producto (☑) antes de aplicar.")
+
+    def _prec_confirmar(self):
+        cambios = []
+        for pid, (row, spin) in self._prec_spins.items():
+            if self.prec_tabla.isRowHidden(row):
+                continue
+            nuevo    = spin.value()
+            original = self.prec_tabla.item(row, 3).data(Qt.ItemDataRole.UserRole)
+            if abs(nuevo - original) > 0.01:
+                nombre = self.prec_tabla.item(row, 1).text()
+                cambios.append((pid, nombre, original, nuevo))
+
+        if not cambios:
+            QMessageBox.information(self, "Sin cambios",
+                "No hay precios modificados. Editá el 'Nuevo precio' de algún producto.")
+            return
+
+        resumen = "\n".join(
+            f"• {nombre}:  $ {orig:,.2f}  →  $ {nuevo:,.2f}"
+            for _, nombre, orig, nuevo in cambios[:12]
+        )
+        if len(cambios) > 12:
+            resumen += f"\n… y {len(cambios) - 12} más"
+
+        resp = QMessageBox.question(
+            self, f"Confirmar {len(cambios)} cambio(s) de precio",
+            f"{resumen}\n\n¿Guardar estos cambios?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp == QMessageBox.StandardButton.Yes:
+            for pid, _, _, nuevo in cambios:
+                db.actualizar_producto(pid, {"precio_venta": nuevo})
+            self.cargar_productos()
+            self._prec_cargar()
+            QMessageBox.information(
+                self, "✅ Listo",
+                f"{len(cambios)} precio(s) actualizados correctamente.")
+
+    def _aumentar_precio_masivo(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📈  Actualizar precios por porcentaje")
+        dlg.setMinimumWidth(400)
+        dlg.setModal(True)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(12)
+        lay.setContentsMargins(24, 20, 24, 20)
+
+        lbl = QLabel("Aplicá un aumento o descuento porcentual a los precios de venta.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet("color:#AAAAAA; font-size:10pt;")
+        lay.addWidget(lbl)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+
+        spin_pct = QDoubleSpinBox()
+        spin_pct.setRange(-99, 9999)
+        spin_pct.setDecimals(1)
+        spin_pct.setSingleStep(5)
+        spin_pct.setSuffix(" %")
+        spin_pct.setValue(0)
+        spin_pct.setToolTip("Positivo = aumento, negativo = descuento")
+        form.addRow("Porcentaje:", spin_pct)
+
+        cmb_cat = QComboBox()
+        cmb_cat.addItem("Todos los productos", None)
+        for c in db.obtener_categorias():
+            cmb_cat.addItem(c["nombre"], c["id"])
+        form.addRow("Aplicar a:", cmb_cat)
+
+        lbl_preview = QLabel("")
+        lbl_preview.setStyleSheet("color:#C9A84C; font-size:10pt; font-weight:700;")
+        form.addRow("", lbl_preview)
+
+        lay.addLayout(form)
+
+        def _actualizar_preview():
+            pct = spin_pct.value()
+            cat_txt = cmb_cat.currentText()
+            if pct == 0:
+                lbl_preview.setText("")
+                return
+            signo = "▲" if pct > 0 else "▼"
+            color  = "#4CAF50" if pct > 0 else "#F44336"
+            lbl_preview.setStyleSheet(f"color:{color}; font-size:10pt; font-weight:700;")
+            lbl_preview.setText(
+                f"{signo} {abs(pct):.1f}% sobre {cat_txt}  "
+                f"(ej. $ 1.000 → $ {1000 * (1 + pct/100):,.0f})")
+
+        spin_pct.valueChanged.connect(_actualizar_preview)
+        cmb_cat.currentIndexChanged.connect(_actualizar_preview)
+
+        btn_row = QHBoxLayout()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("btn_secundario")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_ok = QPushButton("✅  Aplicar")
+        btn_ok.setStyleSheet(
+            "QPushButton{background:#1565C0;color:white;font-weight:700;"
+            "border-radius:6px;padding:8px 20px;}"
+            "QPushButton:hover{background:#1976D2;}")
+        btn_ok.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
+        lay.addLayout(btn_row)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            pct = spin_pct.value()
+            if pct == 0:
+                return
+            cat_id = cmb_cat.currentData()
+            n_prods = len([p for p in self.todos_productos
+                           if cat_id is None or p["categoria_id"] == cat_id])
+            resp = QMessageBox.question(
+                self, "Confirmar actualización masiva",
+                f"¿Aplicás {'+' if pct > 0 else ''}{pct:.1f}% de precio a "
+                f"{n_prods} producto(s)?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if resp == QMessageBox.StandardButton.Yes:
+                db.actualizar_precios_masivo(pct, cat_id)
+                self.cargar_productos()
+                QMessageBox.information(
+                    self, "✅ Hecho",
+                    f"Precios actualizados ({'+' if pct > 0 else ''}{pct:.1f}%).")
+
     def _agregar_stock_rapido(self, producto: dict):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Agregar stock: {producto['nombre']}")
-        dlg.setMinimumWidth(340)
+        dlg.setMinimumWidth(380)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(12)
         lay.setContentsMargins(20, 20, 20, 20)
@@ -1111,27 +1854,68 @@ class StockWidget(QWidget):
         lay.addWidget(QLabel(f"<b>{producto['nombre']}</b>"))
         lay.addWidget(QLabel(f"Stock actual: <b>{producto['stock_actual']}</b>"))
 
+        linea = QFrame()
+        linea.setFrameShape(QFrame.Shape.HLine)
+        linea.setStyleSheet("color:#333;")
+        lay.addWidget(linea)
+
         form = QFormLayout()
+        form.setSpacing(10)
+
         spin = QSpinBox()
         spin.setRange(1, 99999)
         spin.setValue(1)
         form.addRow("Cantidad a agregar:", spin)
+
         txt_motivo = QLineEdit("Ingreso de mercadería")
         form.addRow("Motivo:", txt_motivo)
+
+        # ── Cosecha (año de producción, opcional) ─────────────
+        spin_cosecha = QSpinBox()
+        spin_cosecha.setRange(0, 2100)
+        spin_cosecha.setSpecialValueText("— Sin cosecha")
+        spin_cosecha.setValue(0)
+        spin_cosecha.setToolTip("Año de producción del vino. Dejá en 0 si no aplica.")
+        form.addRow("🍷 Cosecha (año):", spin_cosecha)
+
+        # ── Fecha de vencimiento (opcional) ───────────────────
+        chk_venc = QCheckBox("Tiene fecha de vencimiento")
+        form.addRow("", chk_venc)
+
+        date_venc = QDateEdit()
+        date_venc.setCalendarPopup(True)
+        date_venc.setDisplayFormat("dd/MM/yyyy")
+        date_venc.setDate(QDate.currentDate().addMonths(6))
+        date_venc.setEnabled(False)
+        chk_venc.stateChanged.connect(lambda s: date_venc.setEnabled(bool(s)))
+        form.addRow("📅 Fecha de vencimiento:", date_venc)
+
         lay.addLayout(form)
 
         btn_row = QHBoxLayout()
-        btn_ok = QPushButton("✅  Agregar")
-        btn_ok.clicked.connect(dlg.accept)
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.setObjectName("btn_secundario")
         btn_cancel.clicked.connect(dlg.reject)
-        btn_row.addWidget(btn_ok)
+        btn_ok = QPushButton("✅  Agregar stock")
+        btn_ok.setStyleSheet(
+            "QPushButton{background:#2E7D32;color:white;font-weight:700;"
+            "border-radius:6px;padding:8px 20px;}"
+            "QPushButton:hover{background:#388E3C;}"
+        )
+        btn_ok.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
         lay.addLayout(btn_row)
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            db.agregar_stock(producto["id"], spin.value(), txt_motivo.text())
+            cantidad  = spin.value()
+            motivo    = txt_motivo.text().strip() or "Ingreso de mercadería"
+            cosecha   = spin_cosecha.value() if spin_cosecha.value() > 0 else None
+            fecha_v   = date_venc.date().toString("yyyy-MM-dd") if chk_venc.isChecked() else None
+            db.agregar_stock(producto["id"], cantidad, motivo)
+            if cosecha or fecha_v:
+                db.crear_lote(producto["id"], cantidad,
+                              cosecha=cosecha, fecha_vencimiento=fecha_v, motivo=motivo)
             self.cargar_productos()
 
     def _eliminar_producto(self, producto: dict):
@@ -1149,3 +1933,75 @@ class StockWidget(QWidget):
         dlg = DialogoCargaStock(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.cargar_productos()
+
+    def _ajustar_stock_producto(self, producto: dict):
+        dlg = DialogoAjusteStock(self, producto)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            nuevo_stock, motivo = dlg.get_values()
+            if nuevo_stock != producto["stock_actual"]:
+                db.ajustar_stock(producto["id"], nuevo_stock, motivo)
+                self.cargar_productos()
+            elif dlg.txt_notas.text().strip():
+                QMessageBox.information(self, "Sin cambio",
+                    "El stock no fue modificado (el nuevo valor es igual al actual).")
+
+    def _ver_lotes(self, producto: dict):
+        dlg = DialogoLotesProducto(self, producto)
+        dlg.exec()
+
+    def _cargar_vencimientos(self):
+        from datetime import date
+        hoy  = date.today()
+        dias = self.spin_dias_venc.value()
+
+        vencidos  = db.lotes_vencidos()
+        proximos  = db.lotes_por_vencer(dias)
+        # Desduplicar (vencidos + próximos no se solapan por definición, pero por seguridad)
+        vistos, todos = set(), []
+        for l in list(vencidos) + list(proximos):
+            if l["id"] not in vistos:
+                vistos.add(l["id"])
+                todos.append(l)
+
+        self.tabla_vencimientos.setRowCount(len(todos))
+        for i, l in enumerate(todos):
+            self.tabla_vencimientos.setItem(i, 0, QTableWidgetItem(l["producto_nombre"]))
+            cosecha = str(l["cosecha"]) if l["cosecha"] else "—"
+            self.tabla_vencimientos.setItem(i, 1, QTableWidgetItem(cosecha))
+
+            cant_item = QTableWidgetItem(str(l["cantidad"]))
+            cant_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla_vencimientos.setItem(i, 2, cant_item)
+            self.tabla_vencimientos.setItem(i, 3, QTableWidgetItem(l["fecha_vencimiento"]))
+
+            dias_rest = (date.fromisoformat(l["fecha_vencimiento"]) - hoy).days
+            if dias_rest < 0:
+                dias_txt = f"VENCIDO hace {-dias_rest}d"
+                color    = QColor("#9E9E9E")
+            elif dias_rest == 0:
+                dias_txt = "Vence HOY"
+                color    = QColor("#EF5350")
+            elif dias_rest <= 7:
+                dias_txt = f"{dias_rest} días"
+                color    = QColor("#EF5350")
+            elif dias_rest <= 30:
+                dias_txt = f"{dias_rest} días"
+                color    = QColor("#FF9800")
+            else:
+                dias_txt = f"{dias_rest} días"
+                color    = QColor("#66BB6A")
+
+            dias_item = QTableWidgetItem(dias_txt)
+            dias_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            dias_item.setForeground(color)
+            self.tabla_vencimientos.setItem(i, 4, dias_item)
+            self.tabla_vencimientos.setItem(i, 5, QTableWidgetItem(l["motivo"] or ""))
+            self.tabla_vencimientos.setRowHeight(i, 36)
+
+        if not todos:
+            self.tabla_vencimientos.setRowCount(1)
+            item = QTableWidgetItem(f"✅  Sin vencimientos en los próximos {dias} días ni vencidos")
+            item.setForeground(QColor("#4CAF50"))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla_vencimientos.setItem(0, 0, item)
+            self.tabla_vencimientos.setSpan(0, 0, 1, 6)
