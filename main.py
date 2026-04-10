@@ -35,8 +35,8 @@ def _patch_combo_popup():
 
 
 from ui.main_window import MainWindow
-from version import VERSION_ACTUAL
-from config import GITHUB_USUARIO, GITHUB_REPO, CHEQUEAR_UPDATES
+from version import VERSION_ACTUAL, get_version_instalada
+from config import GITHUB_USUARIO, GITHUB_REPO, CHEQUEAR_UPDATES, BASE_DIR
 
 
 def main():
@@ -86,12 +86,14 @@ def _iniciar_chequeo_updates(parent):
 
     from sync.updater import UpdateChecker, DialogoActualizacion
 
-    checker = UpdateChecker(GITHUB_USUARIO, GITHUB_REPO, VERSION_ACTUAL)
+    # Usar version_stamp.txt si existe (caso .exe con actualizaciones previas)
+    v_instalada = get_version_instalada()
+    checker = UpdateChecker(GITHUB_USUARIO, GITHUB_REPO, v_instalada)
 
     def _on_update(version_nueva, download_url):
         dlg = DialogoActualizacion(
             version_nueva, download_url,
-            VERSION_ACTUAL, BASE_DIR, parent
+            v_instalada, BASE_DIR, parent
         )
         dlg.exec()
 

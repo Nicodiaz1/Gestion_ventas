@@ -91,10 +91,11 @@ class UpdateDownloader(QThread):
     PRESERVAR = {"db", "exports", ".venv", "__pycache__",
                  "config.py"}
 
-    def __init__(self, download_url: str, base_dir: str):
+    def __init__(self, download_url: str, base_dir: str, version_nueva: str = ""):
         super().__init__()
-        self.download_url = download_url
-        self.base_dir     = base_dir
+        self.download_url  = download_url
+        self.base_dir      = base_dir
+        self.version_nueva = version_nueva
 
     def run(self):
         tmp_zip  = None
@@ -157,6 +158,16 @@ class UpdateDownloader(QThread):
                     shutil.copy2(src, dest)
 
             self.progreso.emit(100)
+
+            # Escribir version_stamp.txt para que el .exe sepa que ya se actualizó
+            if self.version_nueva:
+                try:
+                    stamp = os.path.join(self.base_dir, "version_stamp.txt")
+                    with open(stamp, "w", encoding="utf-8") as f:
+                        f.write(self.version_nueva)
+                except Exception:
+                    pass
+
             self.terminado.emit(True, "")
 
         except Exception as e:
@@ -246,7 +257,7 @@ class DialogoActualizacion(QDialog):
         self.lbl_estado.setVisible(True)
         self.lbl_estado.setText("Descargando actualización…")
 
-        self._downloader = UpdateDownloader(self.download_url, self.base_dir)
+        self._downloader = UpdateDownloader(self.download_url, self.base_dir, self.version_nueva)
         self._downloader.progreso.connect(self.progress.setValue)
         self._downloader.terminado.connect(self._descarga_terminada)
         self._downloader.start()

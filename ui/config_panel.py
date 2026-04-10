@@ -166,26 +166,28 @@ class ConfigPanel(QWidget):
         btn_check = QPushButton("🔄  Buscar actualización")
         btn_check.setObjectName("btn_secundario")
         btn_check.setFixedWidth(220)
-        btn_check.clicked.connect(lambda: self._buscar_actualizacion(VERSION_ACTUAL))
+        btn_check.clicked.connect(lambda: self._buscar_actualizacion())
         lay_about.addWidget(btn_check, alignment=Qt.AlignmentFlag.AlignCenter)
 
         tabs.addTab(tab_about, "ℹ️  Acerca de")
 
         lay.addWidget(tabs, 1)
 
-    def _buscar_actualizacion(self, version_actual: str):
+    def _buscar_actualizacion(self):
         from config import GITHUB_USUARIO, GITHUB_REPO, BASE_DIR
         from sync.updater import UpdateChecker, DialogoActualizacion
+        from version import get_version_instalada
 
+        v_instalada = get_version_instalada()
         self.lbl_update_estado.setText("Buscando actualizaciones...")
         self.lbl_update_estado.setStyleSheet("color:#AAAAAA; font-size:10pt;")
 
-        self._checker = UpdateChecker(GITHUB_USUARIO, GITHUB_REPO, version_actual)
+        self._checker = UpdateChecker(GITHUB_USUARIO, GITHUB_REPO, v_instalada)
 
         def _on_update(version_nueva, download_url):
             self.lbl_update_estado.setText(f"¡Nueva versión disponible: v{version_nueva}!")
             self.lbl_update_estado.setStyleSheet("color:#C9A84C; font-size:10pt; font-weight:700;")
-            dlg = DialogoActualizacion(version_nueva, download_url, version_actual, BASE_DIR, self)
+            dlg = DialogoActualizacion(version_nueva, download_url, v_instalada, BASE_DIR, self)
             dlg.exec()
 
         def _on_finished():
