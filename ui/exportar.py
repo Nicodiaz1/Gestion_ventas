@@ -4,14 +4,15 @@
 
 import os
 import sys
+import shutil
 from datetime import date, datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QFrame, QFileDialog, QMessageBox, QScrollArea,
-    QSizePolicy,
+    QSizePolicy, QSpinBox, QLineEdit,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import database as db
@@ -386,6 +387,27 @@ class ExportWorker(QThread):
 
 
 # ─────────────────────────────────────────────────────────────
+#  Worker para backup de la base de datos
+# ─────────────────────────────────────────────────────────────
+
+class BackupWorker(QThread):
+    terminado = pyqtSignal(bool, str)   # (exito, ruta_o_error)
+
+    def __init__(self, origen: str, destino: str):
+        super().__init__()
+        self.origen  = origen
+        self.destino = destino
+
+    def run(self):
+        try:
+            os.makedirs(os.path.dirname(self.destino), exist_ok=True)
+            shutil.copy2(self.origen, self.destino)
+            self.terminado.emit(True, self.destino)
+        except Exception as e:
+            self.terminado.emit(False, str(e))
+
+
+# ─────────────────────────────────────────────────────────────
 #  Panel principal de exportación
 # ─────────────────────────────────────────────────────────────
 
@@ -393,7 +415,10 @@ class ExportarWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._worker = None
+        self._backup_worker = None
         self._build_ui()
+        # Verificar backup automático al iniciar (diferido 5s para no demorar el arranque)
+        QTimer.singleShot(5000, self._verificar_backup_automatico)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -464,6 +489,9 @@ class ExportarWidget(QWidget):
 
         # ── Card: Exportación completa ────────────────────────
         lay.addWidget(self._card_completo())
+
+        # ── Card: Backup automático ───────────────────────────
+        lay.addWidget(self._card_backup())
 
         lay.addStretch()
 
@@ -607,3 +635,186 @@ class ExportarWidget(QWidget):
                 self, "Error al exportar",
                 f"No se pudo generar el archivo:\n{ruta_o_error}"
             )
+
+    # ── Card: Backup automático ────────────────────────────────
+
+    def _card_backup(self):
+        frame = QFrame()
+        frame.setObjectName("card_backup")
+        frame.setStyleSheet(
+            "#card_backup {"
+            "  background:#1A2A1A; border:1px solid #2E7D32;"
+            "  border-radius:8px; padding:16px;"
+            "}"
+        )
+        lay = QVBoxLayout(frame)
+        lay.setSpacing(12)
+
+        lbl_tit = QLabel("🗄️  Backup automático")
+        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#81C784;")
+        lay.addWidget(lbl_tit)
+
+        lbl_desc = QLabel(
+            "Copia de seguridad automática de la base de datos.\n"
+            "Se guarda con fecha en la carpeta que elijas (OneDrive, pendrive, etc.)."
+        )
+        lbl_desc.setStyleSheet("color:#888888; font-size:9pt;")
+        lay.addWidget(lbl_desc)
+
+        # Fila: carpeta destino
+        fila_carpeta = QHBoxLayout()
+        fila_carpeta.setSpacing(8)
+        lbl_c = QLabel("Carpeta:")
+        lbl_c.setStyleSheet("color:#CCCCCC; min-width:70px;")
+        fila_carpeta.addWidget(lbl_c)
+
+        self._txt_carpeta = QLineEdit()
+        self._txt_carpeta.setPlaceholderText("(ninguna seleccionada)")
+        self._txt_carpeta.setReadOnly(True)
+        self._txt_carpeta.setStyleSheet(
+            "background:#111; border:1px solid #444; border-radius:4px;"
+            "padding:4px 8px; color:#DDDDDD;"
+        )
+        carpeta_guardada = db.get_config("backup_carpeta", "")
+        if carpeta_guardada:
+            self._txt_carpeta.setText(carpeta_guardada)
+        fila_carpeta.addWidget(self._txt_carpeta, 1)
+
+        btn_elegir = QPushButton("📁  Elegir…")
+        btn_elegir.setObjectName("btn_secundario")
+        btn_elegir.setFixedHeight(30)
+        btn_elegir.setFixedWidth(100)
+        btn_elegir.clicked.connect(self._elegir_carpeta_backup)
+        fila_carpeta.addWidget(btn_elegir)
+        lay.addLayout(fila_carpeta)
+
+        # Fila: frecuencia + último backup
+        fila_freq = QHBoxLayout()
+        fila_freq.setSpacing(8)
+        lbl_f = QLabel("Cada:")
+        lbl_f.setStyleSheet("color:#CCCCCC; min-width:70px;")
+        fila_freq.addWidget(lbl_f)
+
+        self._spin_dias = QSpinBox()
+        self._spin_dias.setRange(1, 365)
+        self._spin_dias.setSuffix(" días")
+        self._spin_dias.setFixedWidth(100)
+        self._spin_dias.setStyleSheet(
+            "background:#111; border:1px solid #444; border-radius:4px;"
+            "padding:2px 6px; color:#DDDDDD;"
+        )
+        freq_guardada = db.get_config("backup_frecuencia_dias", 7)
+        try:
+            self._spin_dias.setValue(int(freq_guardada))
+        except Exception:
+            self._spin_dias.setValue(7)
+        self._spin_dias.valueChanged.connect(
+            lambda v: db.set_config("backup_frecuencia_dias", v, "int")
+        )
+        fila_freq.addWidget(self._spin_dias)
+
+        fila_freq.addSpacing(20)
+
+        ultima = db.get_config("backup_ultima_fecha", "")
+        txt_ultima = f"Último backup: {ultima}" if ultima else "Nunca se hizo backup"
+        self._lbl_ultima = QLabel(txt_ultima)
+        self._lbl_ultima.setStyleSheet("color:#666666; font-size:9pt;")
+        fila_freq.addWidget(self._lbl_ultima)
+        fila_freq.addStretch()
+        lay.addLayout(fila_freq)
+
+        # Botón manual
+        fila_btn = QHBoxLayout()
+        fila_btn.addStretch()
+        self._btn_backup_ahora = QPushButton("💾  Hacer backup ahora")
+        self._btn_backup_ahora.setObjectName("btn_exito")
+        self._btn_backup_ahora.setFixedHeight(34)
+        self._btn_backup_ahora.setMinimumWidth(200)
+        self._btn_backup_ahora.clicked.connect(self._hacer_backup)
+        fila_btn.addWidget(self._btn_backup_ahora)
+        lay.addLayout(fila_btn)
+
+        return frame
+
+    def _elegir_carpeta_backup(self):
+        carpeta = QFileDialog.getExistingDirectory(
+            self, "Elegir carpeta de backup",
+            self._txt_carpeta.text() or os.path.expanduser("~"),
+        )
+        if carpeta:
+            self._txt_carpeta.setText(carpeta)
+            db.set_config("backup_carpeta", carpeta, "string")
+
+    def _hacer_backup(self, silencioso=False):
+        carpeta = self._txt_carpeta.text().strip()
+        if not carpeta:
+            if not silencioso:
+                QMessageBox.warning(
+                    self, "Sin carpeta",
+                    "Primero elegí una carpeta de destino para el backup."
+                )
+            return
+
+        # Ruta del archivo de la base de datos
+        from config import BASE_DIR
+        origen = os.path.join(BASE_DIR, "db", "vinoteca.db")
+        if not os.path.exists(origen):
+            if not silencioso:
+                QMessageBox.critical(self, "Error", "No se encontró la base de datos.")
+            return
+
+        fecha_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        nombre    = f"vinoteca_backup_{fecha_str}.db"
+        destino   = os.path.join(carpeta, nombre)
+
+        self._btn_backup_ahora.setEnabled(False)
+        self._btn_backup_ahora.setText("Guardando…")
+
+        self._backup_worker = BackupWorker(origen, destino)
+        self._backup_worker.terminado.connect(
+            lambda ok, msg: self._on_backup_terminado(ok, msg, silencioso)
+        )
+        self._backup_worker.start()
+
+    def _on_backup_terminado(self, exito: bool, ruta_o_error: str, silencioso: bool):
+        self._btn_backup_ahora.setEnabled(True)
+        self._btn_backup_ahora.setText("💾  Hacer backup ahora")
+
+        if exito:
+            ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            db.set_config("backup_ultima_fecha", ahora, "string")
+            self._lbl_ultima.setText(f"Último backup: {ahora}")
+            if not silencioso:
+                QMessageBox.information(
+                    self, "Backup exitoso",
+                    f"✅  Backup guardado correctamente:\n{ruta_o_error}"
+                )
+        else:
+            if not silencioso:
+                QMessageBox.critical(
+                    self, "Error en backup",
+                    f"No se pudo guardar el backup:\n{ruta_o_error}"
+                )
+
+    def _verificar_backup_automatico(self):
+        """Comprueba si corresponde hacer un backup automático según la frecuencia configurada."""
+        carpeta = db.get_config("backup_carpeta", "")
+        if not carpeta or not os.path.isdir(carpeta):
+            return
+
+        frecuencia = db.get_config("backup_frecuencia_dias", 7)
+        ultima = db.get_config("backup_ultima_fecha", "")
+
+        if ultima:
+            try:
+                # El formato guardado es "dd/mm/YYYY HH:MM"
+                ultima_dt = datetime.strptime(ultima, "%d/%m/%Y %H:%M")
+                dias_pasados = (datetime.now() - ultima_dt).days
+                if dias_pasados < int(frecuencia):
+                    return   # No toca todavía
+            except Exception:
+                pass   # Si hay error de parseo, hacemos backup igual
+
+        # Corresponde hacer backup silencioso
+        self._hacer_backup(silencioso=True)
+

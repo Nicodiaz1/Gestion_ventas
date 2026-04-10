@@ -12,7 +12,7 @@ sys.path.insert(0, BASE_DIR)
 
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QLabel, QComboBox
 from PyQt6.QtCore import Qt, QTimer, QEvent
-from PyQt6.QtGui import QPixmap, QFont, QColor
+from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QPainterPath
 
 
 def _patch_combo_popup():
@@ -47,18 +47,50 @@ def main():
     app.setApplicationVersion(VERSION_ACTUAL)
 
     # ── Splash screen ─────────────────────────────────────────
-    splash_pix = QPixmap(400, 250)
+    logo_path = os.path.join(BASE_DIR, "assets", "logo.png")
+    SPLASH_W, SPLASH_H = 420, 340
+
+    splash_pix = QPixmap(SPLASH_W, SPLASH_H)
     splash_pix.fill(QColor("#1A1A1A"))
+
+    painter = QPainter(splash_pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    if os.path.exists(logo_path):
+        logo_pix = QPixmap(logo_path).scaled(
+            260, 220,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        # Centrar logo horizontalmente, parte superior con margen
+        lx = (SPLASH_W - logo_pix.width()) // 2
+        ly = 20
+        # Fondo blanco redondeado detrás del logo
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(lx - 10, ly - 8, logo_pix.width() + 20,
+                                logo_pix.height() + 16, 12, 12)
+        painter.drawPixmap(lx, ly, logo_pix)
+        texto_y = ly + logo_pix.height() + 32
+    else:
+        painter.setPen(QColor("#C9A84C"))
+        painter.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        painter.drawText(splash_pix.rect(), Qt.AlignmentFlag.AlignCenter, "🍷  Vinoteca")
+        texto_y = SPLASH_H - 60
+
+    # Texto inferior
+    painter.setPen(QColor("#AAAAAA"))
+    painter.setFont(QFont("Segoe UI", 9))
+    painter.drawText(0, texto_y, SPLASH_W, 24, Qt.AlignmentFlag.AlignCenter,
+                     "Cargando sistema…")
+    # Línea decorativa burdeos
+    painter.setPen(QColor("#722F37"))
+    painter.drawLine(40, SPLASH_H - 12, SPLASH_W - 40, SPLASH_H - 12)
+    painter.end()
 
     splash = QSplashScreen(splash_pix)
     splash.setWindowFlags(
         Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint
-    )
-
-    splash.showMessage(
-        "🍷  Vinoteca\n\nCargando sistema…",
-        Qt.AlignmentFlag.AlignCenter,
-        QColor("#C9A84C")
     )
     splash.show()
     app.processEvents()

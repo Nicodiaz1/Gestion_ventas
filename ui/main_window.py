@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QFrame, QStatusBar, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
 import sys, os
 from datetime import datetime
 
@@ -81,13 +81,28 @@ class MainWindow(QMainWindow):
         sb_lay.setSpacing(2)
 
         # Logo
-        lbl_logo = QLabel("🍷  Vinoteca")
-        lbl_logo.setObjectName("logo_label")
-        sb_lay.addWidget(lbl_logo)
-
-        lbl_sub = QLabel("Sistema de Gestión")
-        lbl_sub.setObjectName("sub_logo_label")
-        sb_lay.addWidget(lbl_sub)
+        _logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "logo.png")
+        if os.path.exists(_logo_path):
+            lbl_logo = QLabel()
+            _pix = QPixmap(_logo_path).scaled(
+                196, 150,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            lbl_logo.setPixmap(_pix)
+            lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_logo.setStyleSheet(
+                "background: #FFFFFF; border-radius: 8px;"
+                "margin: 14px 10px 10px 10px; padding: 6px;"
+            )
+            sb_lay.addWidget(lbl_logo)
+        else:
+            lbl_logo = QLabel("🍷  Vinoteca")
+            lbl_logo.setObjectName("logo_label")
+            sb_lay.addWidget(lbl_logo)
+            lbl_sub = QLabel("Sistema de Gestión")
+            lbl_sub.setObjectName("sub_logo_label")
+            sb_lay.addWidget(lbl_sub)
 
         # Separador
         sep = QFrame()
