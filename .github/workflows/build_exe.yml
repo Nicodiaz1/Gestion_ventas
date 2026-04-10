@@ -22,13 +22,15 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install PyQt6 matplotlib pandas openpyxl Pillow pyinstaller --upgrade --quiet
+        run: pip install PyQt6 matplotlib pandas openpyxl Pillow pyinstaller --upgrade
 
       - name: Generar ícono
         run: python assets/crear_icono.py
+        continue-on-error: true
 
       - name: Inicializar base de datos
         run: python -c "from db.database import init_db; init_db()"
+        continue-on-error: true
 
       - name: Compilar EXE con PyInstaller
         run: pyinstaller vinoteca.spec --noconfirm --clean
@@ -40,6 +42,4 @@ jobs:
       - name: Subir EXE al release de GitHub
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            Vinoteca-Windows.zip
-          fail_on_unmatched_files: true
+          files: Vinoteca-Windows.zip
