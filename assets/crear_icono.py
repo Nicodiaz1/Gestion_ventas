@@ -117,12 +117,12 @@ def crear_icono(output_dir: str = "assets") -> str:
         format="ICO",
         sizes=[(s, s) for s in sizes],
     )
-    print(f"  ✓  icon.ico  →  {ico_path}")
+    print(f"  OK  icon.ico -> {ico_path}")
 
-    # ── .png  256×256 (macOS / referencia) ───────────────────────────────────
+    # ── .png  256x256 (macOS / referencia) ───────────────────────────────────
     png_path = os.path.join(output_dir, "icon.png")
     images[-1].save(png_path)
-    print(f"  ✓  icon.png  →  {png_path}")
+    print(f"  OK  icon.png -> {png_path}")
 
     return ico_path
 
