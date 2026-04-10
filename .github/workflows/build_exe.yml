@@ -1,0 +1,45 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install PyQt6 matplotlib pandas openpyxl Pillow pyinstaller --upgrade --quiet
+
+      - name: Generar ícono
+        run: python assets/crear_icono.py
+
+      - name: Inicializar base de datos
+        run: python -c "from db.database import init_db; init_db()"
+
+      - name: Compilar EXE con PyInstaller
+        run: pyinstaller vinoteca.spec --noconfirm --clean
+
+      - name: Comprimir EXE en ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist/Vinoteca/* -DestinationPath Vinoteca-Windows.zip
+
+      - name: Subir EXE al release de GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Vinoteca-Windows.zip
+          fail_on_unmatched_files: true
