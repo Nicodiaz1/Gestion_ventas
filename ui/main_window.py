@@ -103,7 +103,8 @@ class MainWindow(QMainWindow):
             ("📦  Stock",             1, "F6"),
             ("📊  Reportes",          2, "F7"),
             ("🧾  Cuentas",           3, "F9"),
-            ("⚙️   Configuración",    4, "F8"),
+            ("📂  Exportar datos",    4, "F10"),
+            ("⚙️   Configuración",    5, "F8"),
         ]
         for texto, idx, atajo in nav_items:
             btn = QPushButton(texto)
@@ -160,6 +161,11 @@ class MainWindow(QMainWindow):
         self.cuentas_widget = CuentasProveedorWidget()
         self.stack.addWidget(self.cuentas_widget)
 
+        # Exportar datos
+        from ui.exportar import ExportarWidget
+        self.exportar_widget = ExportarWidget()
+        self.stack.addWidget(self.exportar_widget)
+
         # Configuración
         from ui.config_panel import ConfigPanel
         self.config_panel = ConfigPanel()
@@ -197,6 +203,8 @@ class MainWindow(QMainWindow):
             btn.setStyle(btn.style())  # fuerza re-apply style
 
         # Refrescar datos al cambiar de página
+        if idx == 4:
+            pass   # exportar no requiere recarga
         if idx == 1:
             self.stock_widget.cargar_productos()
         elif idx == 2:
