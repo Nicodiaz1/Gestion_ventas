@@ -47,7 +47,17 @@ def main():
     app.setApplicationVersion(VERSION_ACTUAL)
 
     # ── Splash screen ─────────────────────────────────────────
-    logo_path = os.path.join(BASE_DIR, "assets", "logo.png")
+    # PyInstaller 6.x mete los datas en _internal/ (sys._MEIPASS);
+    # también probamos junto al exe para instalaciones limpias.
+    def _find_logo():
+        candidates = []
+        if getattr(sys, "frozen", False):
+            if hasattr(sys, "_MEIPASS"):
+                candidates.append(os.path.join(sys._MEIPASS, "assets", "logo.png"))
+            candidates.append(os.path.join(os.path.dirname(sys.executable), "assets", "logo.png"))
+        candidates.append(os.path.join(BASE_DIR, "assets", "logo.png"))
+        return next((p for p in candidates if os.path.exists(p)), candidates[-1])
+    logo_path = _find_logo()
     SPLASH_W, SPLASH_H = 420, 340
 
     splash_pix = QPixmap(SPLASH_W, SPLASH_H)

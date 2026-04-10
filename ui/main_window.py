@@ -81,7 +81,16 @@ class MainWindow(QMainWindow):
         sb_lay.setSpacing(2)
 
         # Logo
-        _logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "logo.png")
+        import sys as _sys
+        def _find_logo_sb():
+            candidates = []
+            if getattr(_sys, "frozen", False):
+                if hasattr(_sys, "_MEIPASS"):
+                    candidates.append(os.path.join(_sys._MEIPASS, "assets", "logo.png"))
+                candidates.append(os.path.join(os.path.dirname(_sys.executable), "assets", "logo.png"))
+            candidates.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "logo.png"))
+            return next((p for p in candidates if os.path.exists(p)), candidates[-1])
+        _logo_path = _find_logo_sb()
         if os.path.exists(_logo_path):
             lbl_logo = QLabel()
             _pix = QPixmap(_logo_path).scaled(

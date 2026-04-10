@@ -39,6 +39,12 @@ jobs:
       - name: Compilar EXE con PyInstaller
         run: pyinstaller vinoteca.spec --noconfirm --clean
 
+      - name: Copiar assets sueltos junto al EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/Vinoteca/assets | Out-Null
+          Copy-Item -Path assets/logo.png -Destination dist/Vinoteca/assets/logo.png -Force -ErrorAction SilentlyContinue
+
       - name: Comprimir EXE en ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/Vinoteca/* -DestinationPath Vinoteca-Windows.zip
