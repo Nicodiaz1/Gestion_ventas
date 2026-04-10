@@ -159,7 +159,7 @@ class UpdateDownloader(QThread):
 
             self.progreso.emit(100)
 
-            # Escribir version_stamp.txt para que el .exe sepa que ya se actualizó
+            # Escribir version_stamp.txt
             if self.version_nueva:
                 try:
                     stamp = os.path.join(self.base_dir, "version_stamp.txt")
@@ -167,6 +167,11 @@ class UpdateDownloader(QThread):
                         f.write(self.version_nueva)
                 except Exception:
                     pass
+
+            # Si corre como .exe de PyInstaller, actualizar el acceso directo
+            # para que apunte a pythonw (el .exe no puede actualizarse a sí mismo)
+            if getattr(sys, "frozen", False):
+                self._migrar_acceso_directo_a_python()
 
             self.terminado.emit(True, "")
 
@@ -177,6 +182,62 @@ class UpdateDownloader(QThread):
                 os.unlink(tmp_zip.name)
             if tmp_dir and os.path.exists(tmp_dir):
                 shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _migrar_acceso_directo_a_python(self):
+        """Actualiza el acceso directo del escritorio para usar pythonw en lugar
+        del .exe empaquetado. Así las próximas aperturas corren el código nuevo."""
+        import subprocess, shutil as _shutil
+
+        # 1. Encontrar pythonw.exe
+        pythonw = _shutil.which("pythonw") or _shutil.which("pythonw.exe")
+        if not pythonw:
+            username = os.environ.get("USERNAME", "")
+            candidatos = [
+                r"C:\Python311\pythonw.exe",
+                r"C:\Python312\pythonw.exe",
+                r"C:\Python313\pythonw.exe",
+                r"C:\Python310\pythonw.exe",
+                rf"C:\Users\{username}\AppData\Local\Programs\Python\Python311\pythonw.exe",
+                rf"C:\Users\{username}\AppData\Local\Programs\Python\Python312\pythonw.exe",
+                rf"C:\Users\{username}\AppData\Local\Programs\Python\Python313\pythonw.exe",
+                rf"C:\Users\{username}\AppData\Local\Programs\Python\Python310\pythonw.exe",
+            ]
+            for c in candidatos:
+                if os.path.exists(c):
+                    pythonw = c
+                    break
+
+        if not pythonw:
+            return  # Python no está instalado, no se puede migrar
+
+        main_py  = os.path.join(self.base_dir, "main.py")
+        icon_ico = os.path.join(self.base_dir, "assets", "icon.ico")
+        desktop  = os.path.join(os.path.expanduser("~"), "Desktop")
+        lnk      = os.path.join(desktop, "Vinoteca.lnk")
+
+        # Escapar rutas para PowerShell
+        pw  = pythonw.replace("\\", "\\\\")
+        mp  = main_py.replace("\\", "\\\\")
+        ico = icon_ico.replace("\\", "\\\\")
+        lnk_ps = lnk.replace("\\", "\\\\")
+        wd  = self.base_dir.replace("\\", "\\\\")
+
+        ps = (
+            f'$ws = New-Object -ComObject WScript.Shell; '
+            f'$s = $ws.CreateShortcut("{lnk_ps}"); '
+            f'$s.TargetPath = "{pw}"; '
+            f'$s.Arguments = \'"'{mp}"\'; '
+            f'$s.WorkingDirectory = "{wd}"; '
+            f'$s.IconLocation = "{ico}"; '
+            f'$s.Save()'
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, timeout=15
+            )
+        except Exception:
+            pass  # Si falla, al menos el código nuevo está en disco
 
 
 # ─────────────────────────────────────────────────────────────
@@ -265,12 +326,20 @@ class DialogoActualizacion(QDialog):
     def _descarga_terminada(self, exito: bool, error: str):
         if exito:
             self.lbl_estado.setText("✅  Actualización aplicada.")
-            QMessageBox.information(
-                self,
-                "Actualización lista",
-                "✅  La app se actualizó correctamente.\n\n"
-                "Cerrá y volvé a abrir la aplicación para usar la nueva versión."
-            )
+            import sys as _sys
+            if getattr(_sys, "frozen", False):
+                msg = (
+                    "✅  Actualización descargada correctamente.\n\n"
+                    "El acceso directo del escritorio fue actualizado.\n\n"
+                    "👉  Cerrá la app y volvé a abrirla desde el ícono del escritorio.\n"
+                    "    La próxima vez ya vas a tener la versión nueva."
+                )
+            else:
+                msg = (
+                    "✅  La app se actualizó correctamente.\n\n"
+                    "Cerrá y volvé a abrir la aplicación para usar la nueva versión."
+                )
+            QMessageBox.information(self, "Actualización lista", msg)
             self.accept()
         else:
             self.lbl_estado.setText(f"❌  Error: {error}")
