@@ -131,7 +131,8 @@ class MainWindow(QMainWindow):
         sb_lay.addWidget(self.btn_sync)
 
         # Info de versión
-        lbl_ver = QLabel("v1.4.6")
+        from version import get_version_instalada
+        lbl_ver = QLabel(f"v{get_version_instalada()}")
         lbl_ver.setStyleSheet("color:#555; font-size:8pt; padding:4px 16px;")
         sb_lay.addWidget(lbl_ver)
 

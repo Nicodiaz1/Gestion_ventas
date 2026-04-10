@@ -145,10 +145,11 @@ class ConfigPanel(QWidget):
         lbl_logo.setStyleSheet("font-size: 60pt;")
         lay_about.addWidget(lbl_logo)
 
-        from version import VERSION_ACTUAL
+        from version import get_version_instalada
+        v_mostrar = get_version_instalada()
         for texto, estilo in [
             ("Vinoteca — Sistema de Gestión", "font-size:16pt; font-weight:800; color:#C9A84C;"),
-            (f"Versión {VERSION_ACTUAL}", "color:#888; font-size:11pt;"),
+            (f"Versión {v_mostrar}", "color:#888; font-size:11pt;"),
             ("Desarrollado con Python + PyQt6", "color:#666; font-size:10pt;"),
         ]:
             lbl = QLabel(texto)
