@@ -77,6 +77,9 @@ echo [6/6] Creando acceso directo en el Escritorio...
 set "EXEPATH=%~dp0dist\Vinoteca\Vinoteca.exe"
 set "WORKDIR=%~dp0dist\Vinoteca"
 
+REM Copiar lanzador.bat a la carpeta del exe para que el updater lo pueda usar
+copy /Y "%~dp0lanzador.bat" "%WORKDIR%\lanzador.bat" >nul
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$exe = $env:EXEPATH; $work = $env:WORKDIR; $ws = New-Object -ComObject WScript.Shell; $dt = [Environment]::GetFolderPath('Desktop'); $sc = $ws.CreateShortcut($dt + '\Vinoteca.lnk'); $sc.TargetPath = $exe; $sc.WorkingDirectory = $work; $sc.IconLocation = $exe + ',0'; $sc.Description = 'Sistema de Gestion La Vinoteca'; $sc.Save(); Write-Host 'Acceso directo creado.'"
 
 IF ERRORLEVEL 1 (

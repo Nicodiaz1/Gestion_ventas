@@ -328,11 +328,17 @@ class DialogoActualizacion(QDialog):
             self.lbl_estado.setText("✅  Actualización aplicada.")
             import sys as _sys
             if getattr(_sys, "frozen", False):
+                # Calcular ruta del lanzador.bat que el updater acaba de copiar
+                lanzador = os.path.join(self.base_dir, "lanzador.bat")
                 msg = (
-                    "✅  Actualización descargada correctamente.\n\n"
-                    "El acceso directo del escritorio fue actualizado.\n\n"
-                    "👉  Cerrá la app y volvé a abrirla desde el ícono del escritorio.\n"
-                    "    La próxima vez ya vas a tener la versión nueva."
+                    "✅  Código actualizado en disco correctamente.\n\n"
+                    "Como estás usando el .exe necesitás hacer un paso\n"
+                    "manual UNA SOLA VEZ para terminar la migración:\n\n"
+                    f"👉  Abrí esta carpeta:\n    {self.base_dir}\n\n"
+                    "    Hacé doble clic en  lanzador.bat\n\n"
+                    "Eso actualiza el acceso directo del escritorio\n"
+                    "y abre la nueva versión. Después de eso, todo\n"
+                    "funciona automáticamente para siempre."
                 )
             else:
                 msg = (
