@@ -355,6 +355,9 @@ class DialogoActualizacion(QDialog):
                     "sola en unos segundos con la version nueva."
                 )
                 self.accept()
+                # Marcar la ventana principal para que no pida confirmacion
+                for w in QApplication.topLevelWidgets():
+                    w._cerrar_para_actualizacion = True
                 QApplication.quit()
             else:
                 self.lbl_estado.setText("Actualizacion aplicada.")

@@ -244,6 +244,10 @@ class MainWindow(QMainWindow):
             self.lbl_status.setText(f"  ❌  Error de sincronización: {msg[:60]}")
 
     def closeEvent(self, event):
+        # Si se está cerrando para aplicar una actualización, no preguntar
+        if getattr(self, '_cerrar_para_actualizacion', False):
+            event.accept()
+            return
         resp = QMessageBox.question(
             self, "Salir",
             "¿Cerrar la aplicación?",
