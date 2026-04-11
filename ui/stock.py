@@ -1653,34 +1653,35 @@ class StockWidget(QWidget):
             "Venta act.", "Nuevo precio", "Δ%",
         ])
         hdr = self.prec_tabla.horizontalHeader()
+        hdr.setMinimumSectionSize(54)
         hdr.setDefaultAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        hdr.setMinimumSectionSize(44)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)   # Producto – redimensionable
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
-        hdr.setStretchLastSection(False)
 
-        self.prec_tabla.setColumnWidth(0, 32)   # ☑
-        self.prec_tabla.setColumnWidth(1, 148)  # Producto
-        self.prec_tabla.setColumnWidth(2, 84)   # Categ.
-        self.prec_tabla.setColumnWidth(3, 88)   # Costo act.
-        self.prec_tabla.setColumnWidth(4, 108)  # Nuevo costo (spinbox)
-        self.prec_tabla.setColumnWidth(5, 64)   # Margen
-        self.prec_tabla.setColumnWidth(6, 88)   # Venta act.
-        self.prec_tabla.setColumnWidth(7, 112)  # Nuevo precio (spinbox)
-        self.prec_tabla.setColumnWidth(8, 54)   # Δ%
+        # Col 0: checkbox — fijo angosto
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.prec_tabla.setColumnWidth(0, 30)
+
+        # Col 1: Producto — toma todo el espacio sobrante
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+        # Cols de texto readonly — se ajustan a su contenido (header + datos)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Categ.
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Costo act.
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Margen
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Venta act.
+        hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)  # Δ%
+
+        # Cols de spinbox — interactivas, el usuario puede ensancharlas arrastrando
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # Nuevo costo
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)  # Nuevo precio
+        self.prec_tabla.setColumnWidth(4, 130)
+        self.prec_tabla.setColumnWidth(7, 130)
 
         self.prec_tabla.setAlternatingRowColors(True)
         self.prec_tabla.verticalHeader().setVisible(False)
         self.prec_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.prec_tabla.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.prec_tabla.setWordWrap(True)   # nombres largos ocupan 2 líneas si hace falta
         self.prec_tabla.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         lay.addWidget(self.prec_tabla, 1)
 
@@ -1828,8 +1829,11 @@ class StockWidget(QWidget):
             it_delta.setForeground(QColor("#666"))
             self.prec_tabla.setItem(i, 8, it_delta)
 
-            self.prec_tabla.setRowHeight(i, 44)
+            self.prec_tabla.setRowHeight(i, 46)
             self._prec_spins[pid] = (i, spin_costo, spin_venta)
+
+        # Ajustar filas a contenido (permite 2 líneas si el nombre es largo)
+        self.prec_tabla.resizeRowsToContents()
 
     def _prec_on_costo_changed(self, row: int, nuevo_costo: float,
                                 orig_costo: float, orig_venta: float, margen_orig: float):
