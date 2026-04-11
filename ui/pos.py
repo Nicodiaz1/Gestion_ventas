@@ -99,17 +99,20 @@ def _safe_float(text: str) -> float:
 class ItemCarrito:
     def __init__(self, producto: dict, cantidad: int = 1,
                  lote_id: int = None, cosecha: int = None):
-        self.producto_id  = producto["id"]
-        self.nombre       = producto["nombre"]
-        self.precio_unit  = float(producto["precio_venta"])
-        self.precio_costo = float(producto.get("precio_costo") or 0)
-        self.cantidad     = cantidad
-        self.stock_actual = producto["stock_actual"]
-        self.lote_id      = lote_id    # None = FIFO automático
-        self.cosecha      = cosecha    # para mostrar en carrito
+        self.producto_id      = producto["id"]
+        self.nombre           = producto["nombre"]
+        self.precio_unit      = float(producto["precio_venta"])
+        self.precio_costo     = float(producto.get("precio_costo") or 0)
+        self.cantidad         = cantidad
+        self.stock_actual     = producto["stock_actual"]
+        self.lote_id          = lote_id    # None = FIFO automático
+        self.cosecha          = cosecha    # para mostrar en carrito
+        self.subtotal_override: float | None = None  # precio promo manual
 
     @property
     def subtotal(self) -> float:
+        if self.subtotal_override is not None:
+            return self.subtotal_override
         return self.precio_unit * self.cantidad
 
 
@@ -485,8 +488,29 @@ class CarritoWidget(QWidget):
             spin.valueChanged.connect(
                 lambda val, idx=i: self._cambiar_cantidad(idx, val))
             self.tabla.setCellWidget(i, 2, spin)
-            self.tabla.setItem(i, 3, QTableWidgetItem(
-                f"${item.subtotal:.2f}"))
+            # Col 3: subtotal editable (promo manual)
+            spin_sub = QDoubleSpinBox()
+            spin_sub.setRange(0, 99999999)
+            spin_sub.setDecimals(2)
+            spin_sub.setPrefix("$ ")
+            spin_sub.setSingleStep(100)
+            spin_sub.setValue(item.subtotal)
+            spin_sub.setStyleSheet(
+                "QDoubleSpinBox{background:#1E1E1E;color:#F5F5F5;"
+                "border:1px solid #444;border-radius:4px;padding:2px 4px;}"
+                "QDoubleSpinBox:focus{border:1px solid #C9A84C;color:#FFD700;}"
+            )
+            if item.subtotal_override is not None:
+                spin_sub.setStyleSheet(
+                    "QDoubleSpinBox{background:#2A1E00;color:#FFD700;"
+                    "border:1px solid #C9A84C;border-radius:4px;padding:2px 4px;}"
+                )
+            spin_sub.setToolTip(
+                "Editá el subtotal para aplicar un precio promo.\n"
+                "Si cambiás la cantidad, vuelve al precio normal.")
+            spin_sub.valueChanged.connect(
+                lambda val, idx=i: self._cambiar_subtotal(idx, val))
+            self.tabla.setCellWidget(i, 3, spin_sub)
             btn_del = QPushButton("✕")
             btn_del.setFixedSize(30, 30)
             btn_del.setStyleSheet(
@@ -501,9 +525,10 @@ class CarritoWidget(QWidget):
 
     def _cambiar_cantidad(self, idx: int, valor: int):
         if idx < len(self.carrito):
-            self.carrito[idx].cantidad = valor
-            # Actualizar celda nombre con advertencia si corresponde
             item = self.carrito[idx]
+            item.cantidad = valor
+            item.subtotal_override = None   # reset promo al cambiar cantidad
+            # Actualizar celda nombre
             sin_stock = item.cantidad > item.stock_actual
             nombre_base = item.nombre
             if item.cosecha:
@@ -518,9 +543,27 @@ class CarritoWidget(QWidget):
                     f"Stock disponible: {item.stock_actual} — "
                     "Podés confirmar la venta igual si el stock no está actualizado.")
             self.tabla.setItem(idx, 0, nombre_it)
-            self.tabla.setItem(
-                idx, 3,
-                QTableWidgetItem(f"${self.carrito[idx].subtotal:.2f}"))
+            # Refrescar el spin de subtotal
+            spin_sub = self.tabla.cellWidget(idx, 3)
+            if spin_sub:
+                spin_sub.blockSignals(True)
+                spin_sub.setValue(item.subtotal)
+                spin_sub.setStyleSheet(
+                    "QDoubleSpinBox{background:#1E1E1E;color:#F5F5F5;"
+                    "border:1px solid #444;border-radius:4px;padding:2px 4px;}"
+                    "QDoubleSpinBox:focus{border:1px solid #C9A84C;color:#FFD700;}"
+                )
+                spin_sub.blockSignals(False)
+            self._actualizar_total()
+
+    def _cambiar_subtotal(self, idx: int, valor: float):
+        if idx < len(self.carrito):
+            item = self.carrito[idx]
+            normal = item.precio_unit * item.cantidad
+            if abs(valor - normal) < 0.01:
+                item.subtotal_override = None
+            else:
+                item.subtotal_override = round(valor, 2)
             self._actualizar_total()
 
     def _quitar_item(self, idx: int):
