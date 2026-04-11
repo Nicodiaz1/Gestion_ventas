@@ -1648,33 +1648,40 @@ class StockWidget(QWidget):
         # ☑ | Producto | Categoría | Costo actual | Nuevo costo | Margen | Venta actual | Nuevo precio | Δ% Venta
         self.prec_tabla = QTableWidget(0, 9)
         self.prec_tabla.setHorizontalHeaderLabels([
-            "☑", "Producto", "Categoría",
-            "Costo actual", "Nuevo costo", "Margen",
-            "Venta actual", "Nuevo precio", "Δ% Venta",
+            "☑", "Producto", "Categ.",
+            "Costo act.", "Nuevo costo", "Margen",
+            "Venta act.", "Nuevo precio", "Δ%",
         ])
         hdr = self.prec_tabla.horizontalHeader()
+        hdr.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        hdr.setMinimumSectionSize(44)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)   # Producto – redimensionable
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+        hdr.setStretchLastSection(False)
 
-        self.prec_tabla.setColumnWidth(0, 32)
-        self.prec_tabla.setColumnWidth(3, 95)
-        self.prec_tabla.setColumnWidth(4, 115)
-        self.prec_tabla.setColumnWidth(5, 62)
-        self.prec_tabla.setColumnWidth(6, 98)
-        self.prec_tabla.setColumnWidth(7, 120)
-        self.prec_tabla.setColumnWidth(8, 68)
+        self.prec_tabla.setColumnWidth(0, 32)   # ☑
+        self.prec_tabla.setColumnWidth(1, 148)  # Producto
+        self.prec_tabla.setColumnWidth(2, 84)   # Categ.
+        self.prec_tabla.setColumnWidth(3, 88)   # Costo act.
+        self.prec_tabla.setColumnWidth(4, 108)  # Nuevo costo (spinbox)
+        self.prec_tabla.setColumnWidth(5, 64)   # Margen
+        self.prec_tabla.setColumnWidth(6, 88)   # Venta act.
+        self.prec_tabla.setColumnWidth(7, 112)  # Nuevo precio (spinbox)
+        self.prec_tabla.setColumnWidth(8, 54)   # Δ%
 
         self.prec_tabla.setAlternatingRowColors(True)
         self.prec_tabla.verticalHeader().setVisible(False)
         self.prec_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.prec_tabla.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.prec_tabla.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         lay.addWidget(self.prec_tabla, 1)
 
         # ── Barra de controles ────────────────────────────────
