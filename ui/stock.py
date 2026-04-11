@@ -15,6 +15,7 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import database as db
+from ui.styles import _SPIN_SUBCONTROLES as _SPIN_SUBS
 
 
 class FilaColorDelegate(QStyledItemDelegate):
@@ -720,7 +721,8 @@ class DialogoCargaStock(QDialog):
             spin = QSpinBox()
             spin.setRange(1, 99999)
             spin.setValue(entry["cantidad"])
-            spin.setStyleSheet("background:#2C2C2C; color:#F5F5F5; border:1px solid #444;")
+            spin.setStyleSheet("QSpinBox{background:#2C2C2C;color:#F5F5F5;border:1px solid #444;padding:2px 22px 2px 6px;}"
+                               + _SPIN_SUBS)
             spin.valueChanged.connect(lambda v, pid=pid, row=i: self._actualizar_cantidad(pid, v, row))
             self.tabla.setCellWidget(i, 4, spin)
 
@@ -740,7 +742,8 @@ class DialogoCargaStock(QDialog):
             spin_c.setSpecialValueText("—")
             spin_c.setValue(lote.get("cosecha") or 0)
             spin_c.setToolTip("Año de cosecha / producción")
-            spin_c.setStyleSheet("background:#2C2C2C; color:#C9A84C; border:1px solid #444;")
+            spin_c.setStyleSheet("QSpinBox{background:#2C2C2C;color:#C9A84C;border:1px solid #444;padding:2px 22px 2px 6px;}"
+                                 + _SPIN_SUBS)
             spin_c.valueChanged.connect(
                 lambda v, p=pid: self._set_lote_field(p, "cosecha", v if v > 0 else None))
             self.tabla.setCellWidget(i, 6, spin_c)
@@ -944,8 +947,8 @@ class DialogoPedidoCompra(QDialog):
             spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
             spin.setStyleSheet(
                 "QSpinBox{background:#1A1A1A;color:#C9A84C;font-weight:700;"
-                "border:1px solid #C9A84C;border-radius:4px;padding:2px 6px;}"
-                "QSpinBox::up-button,QSpinBox::down-button{width:18px;}"
+                "border:1px solid #C9A84C;border-radius:4px;padding:2px 22px 2px 6px;}"
+                + _SPIN_SUBS
             )
             self.spinners[p["id"]] = spin
             self.tabla.setCellWidget(i, 7, spin)
@@ -1740,9 +1743,6 @@ class StockWidget(QWidget):
             spin.setSingleStep(100)
             spin.setPrefix("$ ")
             spin.setValue(precio_actual)
-            spin.setStyleSheet(
-                "QDoubleSpinBox{background:#2C2C2C;color:#F5F5F5;"
-                "border:1px solid #444;border-radius:4px;padding:2px 4px;}")
             spin.valueChanged.connect(
                 lambda v, row=i, orig=precio_actual:
                     self._prec_actualizar_cambio(row, v, orig))

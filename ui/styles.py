@@ -2,8 +2,9 @@
 #  ui/styles.py  –  Estilos y paleta centralizada
 # ─────────────────────────────────────────────────────────────
 import os as _os
-_ASSETS = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "assets")
-_ARROW  = _os.path.join(_ASSETS, "arrow_down.svg").replace("\\", "/")
+_ASSETS    = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "assets")
+_ARROW     = _os.path.join(_ASSETS, "arrow_down.svg").replace("\\", "/")
+_ARROW_UP  = _os.path.join(_ASSETS, "arrow_up.svg").replace("\\", "/")
 
 STYLESHEET = """
 QMainWindow, QDialog, QWidget {
@@ -363,10 +364,66 @@ QGroupBox::title {
 /* ── MessageBox ────────────────────────────────────────── */
 QMessageBox { background-color: #2C2C2C; }
 QMessageBox QPushButton { min-width: 80px; }
+
+/* ── SpinBox: subcontroles explícitos (fix click Windows) ─ */
+/* Sin esto Qt mezcla renderer nativo/CSS en Windows y los  */
+/* botones dejan de responder al click intermitentemente.   */
+QSpinBox, QDoubleSpinBox {
+    padding: 4px 22px 4px 8px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 20px;
+    background-color: #3A3A3A;
+    border-left: 1px solid #555;
+    border-bottom: 1px solid #555;
+    border-top-right-radius: 5px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover { background-color: #555; }
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed { background-color: #5C2530; }
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 20px;
+    background-color: #3A3A3A;
+    border-left: 1px solid #555;
+    border-bottom-right-radius: 5px;
+}
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background-color: #555; }
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed { background-color: #5C2530; }
 """ + f"""
 QDateEdit::down-arrow {{
     image: url({_ARROW});
     width: 10px;
     height: 6px;
 }}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url({_ARROW_UP}); width: 8px; height: 5px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url({_ARROW}); width: 8px; height: 5px;
+}}
 """
+
+# ── Subcontroles mínimos para setStyleSheet() inline ─────────
+# Append this to any inline spinbox stylesheet to fix Windows
+# click-area issues (the global stylesheet rules don't cascade
+# into widgets that have their own stylesheet set).
+_SPIN_SUBCONTROLES = (
+    "QSpinBox::up-button,QDoubleSpinBox::up-button{"
+    "subcontrol-origin:border;subcontrol-position:top right;"
+    "width:20px;background:#3A3A3A;"
+    "border-left:1px solid #555;border-bottom:1px solid #555;"
+    "border-top-right-radius:5px;}"
+    "QSpinBox::up-button:hover,QDoubleSpinBox::up-button:hover{background:#555;}"
+    "QSpinBox::up-button:pressed,QDoubleSpinBox::up-button:pressed{background:#5C2530;}"
+    f"QSpinBox::up-arrow,QDoubleSpinBox::up-arrow{{image:url({_ARROW_UP});width:8px;height:5px;}}"
+    "QSpinBox::down-button,QDoubleSpinBox::down-button{"
+    "subcontrol-origin:border;subcontrol-position:bottom right;"
+    "width:20px;background:#3A3A3A;"
+    "border-left:1px solid #555;border-bottom-right-radius:5px;}"
+    "QSpinBox::down-button:hover,QDoubleSpinBox::down-button:hover{background:#555;}"
+    "QSpinBox::down-button:pressed,QDoubleSpinBox::down-button:pressed{background:#5C2530;}"
+    f"QSpinBox::down-arrow,QDoubleSpinBox::down-arrow{{image:url({_ARROW});width:8px;height:5px;}}"
+)

@@ -190,8 +190,6 @@ class CarritoWidget(QWidget):
         self.spin_porcentaje.setToolTip(
             "Positivo = recargo (ej: tarjeta crédito)\n"
             "Negativo = descuento porcentual")
-        self.spin_porcentaje.setStyleSheet(
-            "QDoubleSpinBox { color: #F5F5F5; background:#2C2C2C; }")
         self.spin_porcentaje.valueChanged.connect(self._actualizar_total)
         porc_lay.addWidget(lbl_porc)
         porc_lay.addWidget(self.spin_porcentaje)
@@ -411,9 +409,6 @@ class CarritoWidget(QWidget):
             spin.setValue(item.cantidad)
             spin.valueChanged.connect(
                 lambda val, idx=i: self._cambiar_cantidad(idx, val))
-            spin.setStyleSheet(
-                "background:#2C2C2C; color:#F5F5F5;"
-                " border:1px solid #444; padding:2px;")
             self.tabla.setCellWidget(i, 2, spin)
             self.tabla.setItem(i, 3, QTableWidgetItem(
                 f"${item.subtotal:.2f}"))

@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import database as db
+from ui.styles import _SPIN_SUBCONTROLES as _SPIN_SUBS
 
 
 # ─────────────────────────────────────────────────────────────
@@ -700,8 +701,9 @@ class ExportarWidget(QWidget):
         self._spin_dias.setSuffix(" días")
         self._spin_dias.setFixedWidth(100)
         self._spin_dias.setStyleSheet(
-            "background:#111; border:1px solid #444; border-radius:4px;"
-            "padding:2px 6px; color:#DDDDDD;"
+            "QSpinBox{background:#111;border:1px solid #444;border-radius:4px;"
+            "padding:2px 22px 2px 6px;color:#DDDDDD;}"
+            + _SPIN_SUBS
         )
         freq_guardada = db.get_config("backup_frecuencia_dias", 7)
         try:
