@@ -255,7 +255,7 @@ class DialogoPago(QDialog):
 
         saldo = self.factura["monto_total"] - self.factura["monto_pagado"]
         lay.addWidget(QLabel(
-            f"<b>Total factura:</b>  $ {self.factura['monto_total']:,.2f}<br>"
+            f"<b>Total original:</b>  $ {self.factura['monto_total']:,.2f}<br>"
             f"<b>Ya pagado:</b>  $ {self.factura['monto_pagado']:,.2f}<br>"
             f"<b style='color:#FF9800'>Saldo pendiente:  $ {saldo:,.2f}</b>"
         ))
@@ -267,13 +267,32 @@ class DialogoPago(QDialog):
 
         form = QFormLayout()
 
+        # Editar total de factura (si cambió el precio real, descuento, etc.)
+        self.spin_total_nuevo = QDoubleSpinBox()
+        self.spin_total_nuevo.setRange(0, 9_999_999)
+        self.spin_total_nuevo.setDecimals(2)
+        self.spin_total_nuevo.setSingleStep(100)
+        self.spin_total_nuevo.setPrefix("$ ")
+        self.spin_total_nuevo.setValue(round(self.factura["monto_total"], 2))
+        self.spin_total_nuevo.setToolTip(
+            "Cambiá si el total de la factura es diferente al registrado\n"
+            "(ej: descuento, nota de crédito, precio acordado distinto)")
+        self.spin_total_nuevo.valueChanged.connect(self._actualizar_saldo_pago)
+        form.addRow("✏️ Nuevo total factura:", self.spin_total_nuevo)
+
         self.spin_pago = QDoubleSpinBox()
         self.spin_pago.setRange(0, 9_999_999)
         self.spin_pago.setDecimals(2)
         self.spin_pago.setSingleStep(100)
         self.spin_pago.setPrefix("$ ")
         self.spin_pago.setValue(round(saldo, 2))
+        self.spin_pago.valueChanged.connect(self._actualizar_saldo_pago)
         form.addRow("Monto a pagar ahora:", self.spin_pago)
+
+        self.lbl_saldo_resultado = QLabel()
+        self.lbl_saldo_resultado.setStyleSheet("font-weight:700; font-size:11pt;")
+        form.addRow("Saldo resultante:", self.lbl_saldo_resultado)
+        self._actualizar_saldo_pago()  # primer render
 
         self.txt_notas = QLineEdit()
         self.txt_notas.setPlaceholderText("Ej: transferencia banc. / efectivo…")
@@ -292,7 +311,26 @@ class DialogoPago(QDialog):
         btn_row.addWidget(btn_ok)
         lay.addLayout(btn_row)
 
+    def _actualizar_saldo_pago(self):
+        nuevo_total = self.spin_total_nuevo.value()
+        ya_pagado   = self.factura["monto_pagado"]
+        pago_ahora  = self.spin_pago.value()
+        saldo_res   = round(nuevo_total - ya_pagado - pago_ahora, 2)
+        if saldo_res < -0.005:
+            color = "#2196F3"
+            txt = f"$ {abs(saldo_res):,.2f}  💙 Saldo a favor"
+        elif saldo_res < 0.005:
+            color = "#4CAF50"
+            txt = "✅  Pagada completamente"
+        else:
+            color = "#FF9800"
+            txt = f"$ {saldo_res:,.2f}  pendiente"
+        self.lbl_saldo_resultado.setStyleSheet(
+            f"font-weight:700; font-size:11pt; color:{color};")
+        self.lbl_saldo_resultado.setText(txt)
+
     def _pagar(self):
+        nuevo_total  = round(self.spin_total_nuevo.value(), 2)
         nuevo_pagado = round(
             self.factura["monto_pagado"] + self.spin_pago.value(), 2)
         nota = self.txt_notas.text().strip()
@@ -301,10 +339,12 @@ class DialogoPago(QDialog):
             from datetime import date as _d
             notas_actuales = (notas_actuales + "\n" if notas_actuales else "") + \
                 f"[{_d.today():%d/%m/%Y}] Pago: ${self.spin_pago.value():,.2f} — {nota}"
-        db.actualizar_factura_proveedor(self.factura["id"], {
+        update = {
+            "monto_total":  nuevo_total,
             "monto_pagado": nuevo_pagado,
-            "notas": notas_actuales,
-        })
+            "notas":        notas_actuales,
+        }
+        db.actualizar_factura_proveedor(self.factura["id"], update)
         self.accept()
 
 
@@ -354,6 +394,7 @@ class CuentasProveedorWidget(QWidget):
         self.cmb_filtro_estado.addItem("🔴 Vencidas",       "vencida")
         self.cmb_filtro_estado.addItem("✅ Pagadas",         "pagada")
         self.cmb_filtro_estado.addItem("💙 Saldo a favor",  "saldo_favor")
+        self.cmb_filtro_estado.addItem("📌 Por revisar",    "por_revisar")
         self.cmb_filtro_estado.currentIndexChanged.connect(self._filtrar_facturas)
         filtro_row.addWidget(QLabel("Filtrar:"))
         filtro_row.addWidget(self.cmb_filtro_estado)
@@ -412,24 +453,27 @@ class CuentasProveedorWidget(QWidget):
         lay.addWidget(self.tabs, 1)
 
     def _crear_tabla_facturas(self) -> QTableWidget:
-        tabla = QTableWidget(0, 8)
+        tabla = QTableWidget(0, 9)
         tabla.setHorizontalHeaderLabels([
-            "Proveedor", "N° Factura", "Descripción",
+            "☑", "Proveedor", "N° Factura", "Descripción",
             "Total", "Pagado", "Saldo", "Vencimiento", "Acciones"
         ])
         hdr = tabla.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Proveedor
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)            # N° Factura
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)              # Descripción
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Total
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Pagado
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Saldo
-        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Vencimiento
-        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)              # Acciones
-        tabla.setColumnHidden(2, True)
-        tabla.setColumnWidth(7, 295)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)              # Revisar
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Proveedor
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)            # N° Factura
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)              # Descripción (hidden)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Total
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Pagado
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Saldo
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Vencimiento
+        hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)              # Acciones
+        tabla.setColumnHidden(3, True)    # Descripción oculta
+        tabla.setColumnWidth(0, 28)       # Revisar
+        tabla.setColumnWidth(8, 230)      # Acciones
         tabla.cellDoubleClicked.connect(
             lambda row, col, t=tabla: self._mostrar_descripcion(t, row, col))
+        tabla.itemChanged.connect(self._on_revisar_changed)
         tabla.setAlternatingRowColors(True)
         tabla.verticalHeader().setVisible(False)
         tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -509,17 +553,28 @@ class CuentasProveedorWidget(QWidget):
                 it.setForeground(QColor(color))
                 return it
 
-            self.tabla_por_vencer.setItem(i, 0, cell(f["proveedor_nombre"] or "—", bold=True))
+            # Col 0: checkbox revisar (nativo)
+            chk_it_v = QTableWidgetItem()
+            chk_it_v.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk_it_v.setCheckState(
+                Qt.CheckState.Checked
+                if (f["por_revisar"] if "por_revisar" in f.keys() else 0)
+                else Qt.CheckState.Unchecked)
+            chk_it_v.setData(Qt.ItemDataRole.UserRole, f["id"])
+            chk_it_v.setToolTip("Marcar para revisar después")
+            self.tabla_por_vencer.setItem(i, 0, chk_it_v)
+
+            self.tabla_por_vencer.setItem(i, 1, cell(f["proveedor_nombre"] or "—", bold=True))
             nro_item_v = cell(f["numero_factura"] or "S/N")
             desc_v = f["descripcion"] or ""
             nro_item_v.setData(Qt.ItemDataRole.UserRole, desc_v)
             nro_item_v.setData(Qt.ItemDataRole.UserRole + 1, dict(f))
             nro_item_v.setToolTip("Doble clic para ver detalle")
-            self.tabla_por_vencer.setItem(i, 1, nro_item_v)
-            self.tabla_por_vencer.setItem(i, 2, cell(desc_v))
-            self.tabla_por_vencer.setItem(i, 3, cell(f"$ {f['monto_total']:,.2f}"))
-            self.tabla_por_vencer.setItem(i, 4, cell(f"$ {f['monto_pagado']:,.2f}"))
-            self.tabla_por_vencer.setItem(i, 5, cell(f"$ {f['saldo']:,.2f}", bold=True))
+            self.tabla_por_vencer.setItem(i, 2, nro_item_v)
+            self.tabla_por_vencer.setItem(i, 3, cell(desc_v))
+            self.tabla_por_vencer.setItem(i, 4, cell(f"$ {f['monto_total']:,.2f}"))
+            self.tabla_por_vencer.setItem(i, 5, cell(f"$ {f['monto_pagado']:,.2f}"))
+            self.tabla_por_vencer.setItem(i, 6, cell(f"$ {f['saldo']:,.2f}", bold=True))
             venc_txt = f"{f['fecha_vencimiento'][:10]}  "
             if dias < 0:
                 venc_txt += f"🔴 vencida hace {abs(dias)}d"
@@ -527,52 +582,49 @@ class CuentasProveedorWidget(QWidget):
                 venc_txt += "🔴 vence HOY"
             else:
                 venc_txt += f"⏰ en {dias}d  (alerta a {avisar_en}d)"
-            self.tabla_por_vencer.setItem(i, 6, cell(venc_txt, bold=(dias <= 1)))
+            self.tabla_por_vencer.setItem(i, 7, cell(venc_txt, bold=(dias <= 1)))
 
             # Botones de acción — igual que en la tabla principal
             fdict_v = dict(f)
             acc_v = QWidget()
             acc_lay_v = QHBoxLayout(acc_v)
-            acc_lay_v.setContentsMargins(8, 4, 8, 4)
-            acc_lay_v.setSpacing(8)
+            acc_lay_v.setContentsMargins(6, 3, 6, 3)
+            acc_lay_v.setSpacing(5)
 
             if f["estado"] in ("pendiente", "vencida"):
-                btn_pagar_v = QPushButton("💳  Pagar")
-                btn_pagar_v.setFixedHeight(32)
-                btn_pagar_v.setMinimumWidth(90)
+                btn_pagar_v = QPushButton("= Pagar")
+                btn_pagar_v.setFixedHeight(28)
                 btn_pagar_v.setStyleSheet(
-                    "QPushButton{background:#2E7D32;color:white;border-radius:6px;"
-                    "font-size:10pt;padding:0 14px;}"
+                    "QPushButton{background:#2E7D32;color:white;border-radius:5px;"
+                    "font-size:9pt;padding:0 10px;}"
                     "QPushButton:hover{background:#388E3C;}"
                 )
                 btn_pagar_v.clicked.connect(
                     lambda _, fd=fdict_v: self._pagar_factura(fd))
                 acc_lay_v.addWidget(btn_pagar_v)
 
-            btn_edit_v = QPushButton("✏️  Editar")
-            btn_edit_v.setFixedHeight(32)
-            btn_edit_v.setMinimumWidth(85)
+            btn_edit_v = QPushButton("✏ Editar")
+            btn_edit_v.setFixedHeight(28)
             btn_edit_v.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
-                "color:#F5F5F5;font-size:10pt;padding:0 12px;}"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:5px;"
+                "color:#F5F5F5;font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
             btn_edit_v.clicked.connect(lambda _, fd=fdict_v: self._editar_factura(fd))
             acc_lay_v.addWidget(btn_edit_v)
 
-            btn_del_v = QPushButton("🗑  Borrar")
-            btn_del_v.setFixedHeight(32)
-            btn_del_v.setMinimumWidth(85)
+            btn_del_v = QPushButton("🗑 Borrar")
+            btn_del_v.setFixedHeight(28)
             btn_del_v.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:6px;"
-                "font-size:10pt;padding:0 12px;}"
+                "QPushButton{background:#7F0000;color:white;border-radius:5px;"
+                "font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
             btn_del_v.clicked.connect(lambda _, fd=fdict_v: self._eliminar_factura(fd))
             acc_lay_v.addWidget(btn_del_v)
 
-            self.tabla_por_vencer.setCellWidget(i, 7, acc_v)
-            self.tabla_por_vencer.setRowHeight(i, 48)
+            self.tabla_por_vencer.setCellWidget(i, 8, acc_v)
+            self.tabla_por_vencer.setRowHeight(i, 42)
 
         n = len(por_vencer)
         if n:
@@ -586,14 +638,18 @@ class CuentasProveedorWidget(QWidget):
     def _filtrar_facturas(self):
         estado     = self.cmb_filtro_estado.currentData()
         prov_id    = self.cmb_filtro_prov.currentData()
-        facturas   = db.obtener_facturas_proveedor(
-            proveedor_id=prov_id, estado=estado)
+        if estado == "por_revisar":
+            facturas = db.obtener_facturas_proveedor(
+                proveedor_id=prov_id, por_revisar=True)
+        else:
+            facturas = db.obtener_facturas_proveedor(
+                proveedor_id=prov_id, estado=estado)
         self._mostrar_facturas(facturas)
 
     def _mostrar_descripcion(self, tabla, row, col):
-        if col != 1:
+        if col != 2:
             return
-        item = tabla.item(row, 1)
+        item = tabla.item(row, 2)
         if not item:
             return
         fdict = item.data(Qt.ItemDataRole.UserRole + 1)
@@ -671,15 +727,24 @@ class CuentasProveedorWidget(QWidget):
         self.tabla_facturas.setRowCount(len(facturas))
         hoy = date.today()
         for i, f in enumerate(facturas):
-            self.tabla_facturas.setItem(i, 0, QTableWidgetItem(
+            # Col 0: checkbox "por revisar" (nativo)
+            chk_it = QTableWidgetItem()
+            chk_it.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk_it.setCheckState(
+                Qt.CheckState.Checked if f["por_revisar"] else Qt.CheckState.Unchecked)
+            chk_it.setData(Qt.ItemDataRole.UserRole, f["id"])
+            chk_it.setToolTip("Marcar para revisar después")
+            self.tabla_facturas.setItem(i, 0, chk_it)
+
+            self.tabla_facturas.setItem(i, 1, QTableWidgetItem(
                 f["proveedor_nombre"] or "Sin proveedor"))
             nro_item = QTableWidgetItem(f["numero_factura"] or "—")
             desc = f["descripcion"] or ""
             nro_item.setData(Qt.ItemDataRole.UserRole, desc)
             nro_item.setData(Qt.ItemDataRole.UserRole + 1, dict(f))
             nro_item.setToolTip("Doble clic para ver detalle")
-            self.tabla_facturas.setItem(i, 1, nro_item)
-            self.tabla_facturas.setItem(i, 2, QTableWidgetItem(desc))
+            self.tabla_facturas.setItem(i, 2, nro_item)
+            self.tabla_facturas.setItem(i, 3, QTableWidgetItem(desc))
 
             def _c(val, color=None, bold=False):
                 it = QTableWidgetItem(str(val))
@@ -692,13 +757,13 @@ class CuentasProveedorWidget(QWidget):
                     it.setFont(font)
                 return it
 
-            self.tabla_facturas.setItem(i, 3, _c(f"$ {f['monto_total']:,.2f}"))
-            self.tabla_facturas.setItem(i, 4, _c(f"$ {f['monto_pagado']:,.2f}", "#4CAF50"))
+            self.tabla_facturas.setItem(i, 4, _c(f"$ {f['monto_total']:,.2f}"))
+            self.tabla_facturas.setItem(i, 5, _c(f"$ {f['monto_pagado']:,.2f}", "#4CAF50"))
 
             saldo = f["saldo"]
             saldo_color = (ESTADO_COLOR.get(f["estado"], "#FFFFFF")
                            if f["estado"] != "pagada" else "#4CAF50")
-            self.tabla_facturas.setItem(i, 5, _c(f"$ {saldo:,.2f}", saldo_color, bold=True))
+            self.tabla_facturas.setItem(i, 6, _c(f"$ {saldo:,.2f}", saldo_color, bold=True))
 
             # Vencimiento con días restantes
             try:
@@ -720,53 +785,50 @@ class CuentasProveedorWidget(QWidget):
             except Exception:
                 venc_txt, venc_color = str(f["fecha_vencimiento"]), "#AAAAAA"
 
-            self.tabla_facturas.setItem(i, 6, _c(venc_txt, venc_color))
+            self.tabla_facturas.setItem(i, 7, _c(venc_txt, venc_color))
 
             # ── Botones de acción ─────────────────────────────
             acc = QWidget()
             acc_lay = QHBoxLayout(acc)
-            acc_lay.setContentsMargins(8, 4, 8, 4)
-            acc_lay.setSpacing(8)
+            acc_lay.setContentsMargins(6, 3, 6, 3)
+            acc_lay.setSpacing(5)
 
             fdict = dict(f)
 
             if f["estado"] in ("pendiente", "vencida"):
-                btn_pagar = QPushButton("💳  Pagar")
-                btn_pagar.setFixedHeight(32)
-                btn_pagar.setMinimumWidth(90)
+                btn_pagar = QPushButton("= Pagar")
+                btn_pagar.setFixedHeight(28)
                 btn_pagar.setStyleSheet(
-                    "QPushButton{background:#2E7D32;color:white;border-radius:6px;"
-                    "font-size:10pt;padding:0 14px;}"
+                    "QPushButton{background:#2E7D32;color:white;border-radius:5px;"
+                    "font-size:9pt;padding:0 10px;}"
                     "QPushButton:hover{background:#388E3C;}"
                 )
                 btn_pagar.clicked.connect(
                     lambda _, fd=fdict: self._pagar_factura(fd))
                 acc_lay.addWidget(btn_pagar)
 
-            btn_edit = QPushButton("✏️  Editar")
-            btn_edit.setFixedHeight(32)
-            btn_edit.setMinimumWidth(85)
+            btn_edit = QPushButton("✏ Editar")
+            btn_edit.setFixedHeight(28)
             btn_edit.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
-                "color:#F5F5F5;font-size:10pt;padding:0 12px;}"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:5px;"
+                "color:#F5F5F5;font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
             btn_edit.clicked.connect(lambda _, fd=fdict: self._editar_factura(fd))
             acc_lay.addWidget(btn_edit)
 
-            btn_del = QPushButton("🗑  Borrar")
-            btn_del.setFixedHeight(32)
-            btn_del.setMinimumWidth(85)
+            btn_del = QPushButton("🗑 Borrar")
+            btn_del.setFixedHeight(28)
             btn_del.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:6px;"
-                "font-size:10pt;padding:0 12px;}"
+                "QPushButton{background:#7F0000;color:white;border-radius:5px;"
+                "font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
             btn_del.clicked.connect(lambda _, fd=fdict: self._eliminar_factura(fd))
             acc_lay.addWidget(btn_del)
 
-            self.tabla_facturas.setCellWidget(i, 7, acc)
-            self.tabla_facturas.setRowHeight(i, 48)
+            self.tabla_facturas.setCellWidget(i, 8, acc)
+            self.tabla_facturas.setRowHeight(i, 42)
 
     def _cargar_resumen(self):
         provs = db.resumen_deuda_proveedores()
@@ -1001,6 +1063,20 @@ class CuentasProveedorWidget(QWidget):
 
         self.an_canvas.fig.tight_layout()
         self.an_canvas.draw()
+
+    def _on_revisar_changed(self, item: QTableWidgetItem):
+        """Guardado automático al tildar/destildar el checkbox de revisar."""
+        if item.column() != 0:
+            return
+        factura_id = item.data(Qt.ItemDataRole.UserRole)
+        if factura_id is not None:
+            db.actualizar_factura_proveedor(
+                factura_id,
+                {"por_revisar": 1 if item.checkState() == Qt.CheckState.Checked else 0})
+
+    def _toggle_revisar(self, factura_id: int, state: int):
+        """Guarda el estado de 'por revisar' en la DB sin recargar toda la tabla."""
+        db.actualizar_factura_proveedor(factura_id, {"por_revisar": 1 if state else 0})
 
     # ── Acciones ──────────────────────────────────────────────
 

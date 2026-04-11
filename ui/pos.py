@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QTabBar, QInputDialog, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
-from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QColor
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QColor, QDoubleValidator
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -82,6 +82,17 @@ class BuscadorProductos(QDialog):
 
 
 # ─────────────────────────────────────────────────────────────
+#  Helpers
+# ─────────────────────────────────────────────────────────────
+
+def _safe_float(text: str) -> float:
+    try:
+        return float(text.replace(",", "."))
+    except (ValueError, AttributeError):
+        return 0.0
+
+
+# ─────────────────────────────────────────────────────────────
 #  Fila del carrito
 # ─────────────────────────────────────────────────────────────
 
@@ -91,6 +102,7 @@ class ItemCarrito:
         self.producto_id  = producto["id"]
         self.nombre       = producto["nombre"]
         self.precio_unit  = float(producto["precio_venta"])
+        self.precio_costo = float(producto.get("precio_costo") or 0)
         self.cantidad     = cantidad
         self.stock_actual = producto["stock_actual"]
         self.lote_id      = lote_id    # None = FIFO automático
@@ -216,36 +228,79 @@ class CarritoWidget(QWidget):
         der.setMaximumWidth(340)
         der.setMinimumWidth(280)
         lay_der = QVBoxLayout(der)
-        lay_der.setSpacing(10)
+        lay_der.setSpacing(6)
         lay_der.setContentsMargins(8, 12, 16, 16)
 
-        lbl_mp = QLabel("Medio de Pago")
+        lbl_mp = QLabel("Medio de Pago / Montos")
         lbl_mp.setStyleSheet(
             "font-weight:700; color:#C9A84C; font-size:12pt;")
         lay_der.addWidget(lbl_mp)
 
-        self.btn_group_mp = QButtonGroup(self)
-        self.btn_group_mp.setExclusive(True)
+        # ── Panel de montos por método ────────────────────────
+        # Cada fila: [botón método]  [campo monto]
+        # Un campo distinto por medio de pago, sumable (pago mixto)
+        self._montos: dict[str, QLineEdit] = {}
+        validator = QDoubleValidator(0, 99999999, 2)
+        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+
         for texto, valor, obj_name in self.MEDIOS_PAGO:
+            fila = QHBoxLayout()
+            fila.setSpacing(6)
+
             btn = QPushButton(texto)
             btn.setObjectName(obj_name)
+            btn.setMinimumHeight(36)
             btn.setCheckable(True)
-            btn.setMinimumHeight(44)
-            btn.clicked.connect(
-                lambda checked, v=valor: self._set_medio_pago(v))
-            self.btn_group_mp.addButton(btn)
-            lay_der.addWidget(btn)
-            if valor == "efectivo":
-                btn.setChecked(True)
+            # Al clickear el botón: focus + selecciona el campo
+            txt = QLineEdit("0")
+            txt.setFixedWidth(105)
+            txt.setAlignment(Qt.AlignmentFlag.AlignRight)
+            txt.setValidator(validator)
+            txt.setStyleSheet(
+                "QLineEdit{background:#2C2C2C;border:1px solid #444;"
+                "border-radius:5px;padding:4px 8px;font-size:11pt;"
+                "color:#F5F5F5;}"
+                "QLineEdit:focus{border:2px solid #C9A84C;}"
+            )
+            txt.textEdited.connect(
+                lambda text, t=txt, v=valor: self._on_monto_editado(t, v))
 
-        lay_der.addSpacing(8)
+            btn.clicked.connect(
+                lambda checked, t=txt, v=valor: self._toggle_metodo(t, v, checked))
+
+            self._montos[valor] = txt
+            fila.addWidget(btn, 1)
+            fila.addWidget(txt)
+            lay_der.addLayout(fila)
+
+        # Indicador de pendiente
+        self.lbl_pendiente = QLabel("")
+        self.lbl_pendiente.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.lbl_pendiente.setStyleSheet("font-size:10pt; font-weight:700; padding:2px 0;")
+        lay_der.addWidget(self.lbl_pendiente)
+
+        btn_extraccion = QPushButton("📦  Extracción al costo")
+        btn_extraccion.setMinimumHeight(34)
+        btn_extraccion.setStyleSheet(
+            "QPushButton{background:#4A3728;color:#FFCC80;font-weight:700;"
+            "border-radius:6px;font-size:9pt;border:1px solid #7D5A45;}"
+            "QPushButton:hover{background:#5D4037;}"
+            "QPushButton:pressed{background:#3E2723;}"
+        )
+        btn_extraccion.setToolTip(
+            "Sacar mercandría al precio de costo\n"
+            "(sin cobro, solo descuenta stock)")
+        btn_extraccion.clicked.connect(self._confirmar_extraccion)
+        lay_der.addWidget(btn_extraccion)
+
+        lay_der.addSpacing(4)
         linea = QFrame()
         linea.setFrameShape(QFrame.Shape.HLine)
         linea.setStyleSheet("color: #333;")
         lay_der.addWidget(linea)
 
         btn_cobrar = QPushButton("✅  COBRAR  (F12)")
-        btn_cobrar.setMinimumHeight(64)
+        btn_cobrar.setMinimumHeight(52)
         btn_cobrar.setStyleSheet(
             "QPushButton { background-color: #2E7D32; font-size:15pt;"
             " font-weight:900; border-radius:10px; color:white; }"
@@ -254,19 +309,20 @@ class CarritoWidget(QWidget):
         )
         btn_cobrar.clicked.connect(self._confirmar_venta)
         lay_der.addWidget(btn_cobrar)
+        self.btn_cobrar = btn_cobrar
 
         btn_vaciar = QPushButton("🗑  Vaciar carrito")
         btn_vaciar.setObjectName("btn_secundario")
         btn_vaciar.clicked.connect(self._vaciar_carrito)
         lay_der.addWidget(btn_vaciar)
 
-        lay_der.addSpacing(8)
+        lay_der.addSpacing(4)
         lbl_ult = QLabel("Últimas ventas del día")
         lbl_ult.setStyleSheet("color:#888; font-size:9pt; font-weight:700;")
         lay_der.addWidget(lbl_ult)
 
         self.lista_ultimas = QListWidget()
-        self.lista_ultimas.setMaximumHeight(180)
+        self.lista_ultimas.setMaximumHeight(130)
         self.lista_ultimas.setStyleSheet("font-size:9pt;")
         self.lista_ultimas.setToolTip("Doble clic para ver el detalle de la venta")
         self.lista_ultimas.itemDoubleClicked.connect(self._ver_detalle_venta)
@@ -462,6 +518,8 @@ class CarritoWidget(QWidget):
             if resp == QMessageBox.StandardButton.Yes:
                 self.carrito.clear()
                 self.spin_porcentaje.setValue(0)
+                for metodo, txt in self._montos.items():
+                    txt.setText("0")
                 self._refrescar_tabla()
         self.scan_input.setFocus()
 
@@ -482,9 +540,117 @@ class CarritoWidget(QWidget):
             self.lbl_tit_total.setText("TOTAL A COBRAR")
             self.lbl_tit_total.setStyleSheet(
                 "color:#AAAAAA; font-size:10pt; font-weight:600;")
+        self._actualizar_pendiente()
 
     def _set_medio_pago(self, valor: str):
+        # Compatibilidad retroactiva (no se usa en nuevo UI)
         self.medio_pago_actual = valor
+
+    def _toggle_metodo(self, txt: QLineEdit, valor: str, checked: bool = True):
+        """Al clickear un botón de método: si se deselecciona limpia el campo;
+        si se selecciona completa con el monto restante si el campo estaba en 0."""
+        if not checked:
+            txt.setText("0")
+            self._actualizar_pendiente()
+            return
+        try:
+            val_actual = float(txt.text().replace(",", "."))
+        except ValueError:
+            val_actual = 0.0
+        if val_actual <= 0.005:
+            total = self._total_actual()
+            otros = 0.0
+            for m, t in self._montos.items():
+                if m != valor:
+                    try:
+                        otros += float(t.text().replace(",", "."))
+                    except ValueError:
+                        pass
+            restante = max(0.0, total - otros)
+            if restante > 0.005:
+                txt.setText(f"{restante:.2f}")
+        txt.setFocus()
+        txt.selectAll()
+        self._actualizar_pendiente()
+
+    def _on_monto_editado(self, txt_editado: QLineEdit = None, valor_editado: str = None):
+        """Recalcula el pendiente. Si hay exactamente un campo activo en otros métodos,
+        lo ajusta automáticamente para que la suma dé el total."""
+        if txt_editado is not None and valor_editado is not None:
+            try:
+                valor_nuevo = float(txt_editado.text().replace(",", "."))
+            except ValueError:
+                valor_nuevo = 0.0
+            total = self._total_actual()
+            otros_activos = [
+                (m, t) for m, t in self._montos.items()
+                if m != valor_editado
+                and _safe_float(t.text()) > 0.005
+            ]
+            if len(otros_activos) == 1:
+                _, t_otro = otros_activos[0]
+                restante = max(0.0, total - valor_nuevo)
+                t_otro.blockSignals(True)
+                t_otro.setText(f"{restante:.2f}")
+                t_otro.blockSignals(False)
+        self._actualizar_pendiente()
+
+    def _total_actual(self) -> float:
+        subtotal   = sum(i.subtotal for i in self.carrito)
+        porcentaje = self.spin_porcentaje.value()
+        return subtotal * (1 + porcentaje / 100)
+
+    def _get_pagos(self) -> list:
+        """Devuelve lista de pagos activos (monto > 0)."""
+        pagos = []
+        for metodo, txt in self._montos.items():
+            try:
+                monto = float(txt.text().replace(",", "."))
+            except (ValueError, AttributeError):
+                monto = 0.0
+            if monto > 0.005:
+                pagos.append({"metodo": metodo, "monto": round(monto, 2)})
+        return pagos
+
+    def _actualizar_pendiente(self):
+        total = self._total_actual()
+        asignado = sum(p["monto"] for p in self._get_pagos())
+        pendiente = total - asignado
+        # Actualizar estado de botones de método
+        for metodo, txt in self._montos.items():
+            try:
+                monto = float(txt.text().replace(",", "."))
+            except (ValueError, AttributeError):
+                monto = 0.0
+            # Resaltar campos con monto > 0
+            txt.setStyleSheet(
+                "QLineEdit{background:#1A2A1A;border:1px solid #2E7D32;"
+                "border-radius:5px;padding:4px 8px;font-size:11pt;color:#81C784;}"
+                "QLineEdit:focus{border:2px solid #C9A84C;}"
+                if monto > 0.005 else
+                "QLineEdit{background:#2C2C2C;border:1px solid #444;"
+                "border-radius:5px;padding:4px 8px;font-size:11pt;color:#F5F5F5;}"
+                "QLineEdit:focus{border:2px solid #C9A84C;}"
+            )
+        if total <= 0:
+            self.lbl_pendiente.setText("")
+            self.btn_cobrar.setEnabled(True)
+            return
+        if abs(pendiente) < 0.5:
+            self.lbl_pendiente.setText("✅  Monto completo")
+            self.lbl_pendiente.setStyleSheet(
+                "color:#66BB6A; font-size:10pt; font-weight:700; padding:2px 0;")
+            self.btn_cobrar.setEnabled(True)
+        elif pendiente > 0:
+            self.lbl_pendiente.setText(f"Faltan: ${pendiente:,.2f}")
+            self.lbl_pendiente.setStyleSheet(
+                "color:#FF9800; font-size:10pt; font-weight:700; padding:2px 0;")
+            self.btn_cobrar.setEnabled(False)
+        else:
+            self.lbl_pendiente.setText(f"Exceso: ${-pendiente:,.2f}")
+            self.lbl_pendiente.setStyleSheet(
+                "color:#EF5350; font-size:10pt; font-weight:700; padding:2px 0;")
+            self.btn_cobrar.setEnabled(False)
 
     # ── Confirmar venta ───────────────────────────────────────
 
@@ -509,16 +675,25 @@ class CarritoWidget(QWidget):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if resp == QMessageBox.StandardButton.No:
                 return
+
         subtotal   = sum(i.subtotal for i in self.carrito)
         porcentaje = self.spin_porcentaje.value()
         total      = subtotal * (1 + porcentaje / 100)
+
+        pagos = self._get_pagos()
+        if not pagos:
+            QMessageBox.warning(self, "Sin monto", "Ingresá el monto a cobrar.")
+            return
+
+        medio_display = pagos[0]["metodo"] if len(pagos) == 1 else "mixto"
 
         dlg = ConfirmacionVenta(
             self, carrito=self.carrito,
             subtotal=subtotal, descuento=0,
             porcentaje=porcentaje,
-            total=total, medio_pago=self.medio_pago_actual,
-            nombre_cliente=self.nombre_cliente)
+            total=total, medio_pago=medio_display,
+            nombre_cliente=self.nombre_cliente,
+            pagos=pagos)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             items_db = [
                 {"producto_id": i.producto_id,
@@ -529,10 +704,13 @@ class CarritoWidget(QWidget):
             ]
             try:
                 venta_id = db.registrar_venta(
-                    items_db, self.medio_pago_actual,
-                    descuento=0, recargo_pct=porcentaje)
+                    items_db, medio_display,
+                    descuento=0, recargo_pct=porcentaje,
+                    pagos=pagos)
                 self.carrito.clear()
                 self.spin_porcentaje.setValue(0)
+                for txt in self._montos.values():
+                    txt.setText("0")
                 self._refrescar_tabla()
                 self._cargar_ultimas_ventas()
                 self.venta_realizada.emit(venta_id)
@@ -544,12 +722,60 @@ class CarritoWidget(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error al registrar", str(e))
 
+    # ── Extracción de mercadería ───────────────────────────────
+
+    def _confirmar_extraccion(self):
+        """Registrar salida de mercadería al precio de costo (sin cobro en caja)."""
+        if not self.carrito:
+            QMessageBox.information(
+                self, "Carrito vacío",
+                "Agregá productos antes de procesar una extracción.")
+            return
+        total_costo = sum(i.precio_costo * i.cantidad for i in self.carrito)
+        detalle = "\n".join(
+            f"  {i.cantidad}x {i.nombre}  →  ${i.precio_costo * i.cantidad:,.2f}"
+            for i in self.carrito)
+        resp = QMessageBox.question(
+            self, "📦  Extracción de mercadería",
+            f"Se registrará la salida al precio de costo:\n\n{detalle}\n\n"
+            f"Total al costo: ${total_costo:,.2f}\n\n"
+            "El stock se descuenta. No se registra cobro en caja.\n"
+            "¿Confirmar extracción?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        items_db = [
+            {"producto_id": i.producto_id,
+             "cantidad":    i.cantidad,
+             "precio_unit": i.precio_costo,
+             "lote_id":     i.lote_id}
+            for i in self.carrito
+        ]
+        try:
+            venta_id = db.registrar_venta(
+                items_db, "extraccion", descuento=0, recargo_pct=0)
+            self.carrito.clear()
+            self.spin_porcentaje.setValue(0)
+            for txt in self._montos.values():
+                txt.setText("0")
+            self._refrescar_tabla()
+            self._cargar_ultimas_ventas()
+            self.venta_realizada.emit(venta_id)
+            self.scan_input.setFocus()
+            QMessageBox.information(
+                self, "✅  Extracción registrada",
+                f"Extracción #{venta_id} registrada.\n"
+                f"Total al costo: ${total_costo:,.2f}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error al registrar extracción", str(e))
+
     # ── Últimas ventas ─────────────────────────────────────────
 
     def _cargar_ultimas_ventas(self):
         self.lista_ultimas.clear()
         icons = {"efectivo": "💵", "debito": "💳", "credito": "🏦",
-                 "transferencia": "📲", "qr": "🔲"}
+                 "transferencia": "📲", "qr": "🔲",
+                 "mixto": "💰", "extraccion": "📦"}
         for v in db.ventas_del_dia()[:15]:
             ic = icons.get(v["medio_pago"], "💰")
             item = QListWidgetItem(
@@ -828,15 +1054,15 @@ class PosWidget(QWidget):
 
 class ConfirmacionVenta(QDialog):
     def __init__(self, parent, carrito, subtotal, descuento, total, medio_pago,
-                 nombre_cliente="", porcentaje=0):
+                 nombre_cliente="", porcentaje=0, pagos=None):
         super().__init__(parent)
         titulo = f"Confirmar Venta — {nombre_cliente}" if nombre_cliente else "Confirmar Venta"
         self.setWindowTitle(titulo)
         self.setMinimumWidth(420)
         self.setModal(True)
-        self._build(carrito, subtotal, descuento, total, medio_pago, porcentaje)
+        self._build(carrito, subtotal, descuento, total, medio_pago, porcentaje, pagos)
 
-    def _build(self, carrito, subtotal, descuento, total, medio_pago, porcentaje=0):
+    def _build(self, carrito, subtotal, descuento, total, medio_pago, porcentaje=0, pagos=None):
         lay = QVBoxLayout(self)
         lay.setSpacing(10)
         lay.setContentsMargins(24, 20, 24, 20)
@@ -865,12 +1091,23 @@ class ConfirmacionVenta(QDialog):
             lbl_pct.setStyleSheet(f"font-weight:600; color:{color}; font-size:12pt;")
             lay.addWidget(lbl_pct)
 
+        # Desglose de pagos
         mp_labels = {"efectivo": "💵 Efectivo", "debito": "💳 Débito",
                      "credito": "🏦 Crédito", "transferencia": "📲 Transferencia",
-                     "qr": "🔲 QR"}
-        lbl_mp = QLabel(f"Medio de pago: {mp_labels.get(medio_pago, medio_pago)}")
-        lbl_mp.setStyleSheet("font-weight:600; color:#C9A84C; font-size:12pt;")
-        lay.addWidget(lbl_mp)
+                     "qr": "🔲 QR", "mixto": "🔀 Pago mixto"}
+        if pagos and len(pagos) > 1:
+            lbl_mp = QLabel("🔀  Pago mixto:")
+            lbl_mp.setStyleSheet("font-weight:700; color:#C9A84C; font-size:12pt;")
+            lay.addWidget(lbl_mp)
+            for p in pagos:
+                nombre_metodo = mp_labels.get(p["metodo"], p["metodo"].capitalize())
+                lbl_p = QLabel(f"     {nombre_metodo}:   ${p['monto']:,.2f}")
+                lbl_p.setStyleSheet("color:#DDDDDD; font-size:11pt;")
+                lay.addWidget(lbl_p)
+        else:
+            lbl_mp = QLabel(f"Medio de pago: {mp_labels.get(medio_pago, medio_pago)}")
+            lbl_mp.setStyleSheet("font-weight:600; color:#C9A84C; font-size:12pt;")
+            lay.addWidget(lbl_mp)
 
         lbl_total = QLabel(f"TOTAL: ${total:,.2f}")
         lbl_total.setStyleSheet("font-size:22pt; font-weight:900; color:#C9A84C;")

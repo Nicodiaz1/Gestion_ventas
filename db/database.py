@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS facturas_proveedores (
     -- pendiente | pagada | vencida | saldo_favor
     dias_alerta      INTEGER NOT NULL DEFAULT 7,  -- días antes del vencimiento para avisar
     notas            TEXT,
+    por_revisar      INTEGER NOT NULL DEFAULT 0,  -- 1 = marcar para revisar después
     creado_en        DATETIME DEFAULT CURRENT_TIMESTAMP,
     modificado_en    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -266,6 +267,18 @@ def init_db():
             conn.execute(
                 "ALTER TABLE detalle_ventas ADD COLUMN lote_id INTEGER REFERENCES lotes(id)")
             print("[DB] Migración: columna lote_id agregada a detalle_ventas.")
+        # Migración: columna pagos_json en ventas (pago mixto/dividido)
+        cols_ventas = [r[1] for r in conn.execute("PRAGMA table_info(ventas)").fetchall()]
+        if "pagos_json" not in cols_ventas:
+            conn.execute("ALTER TABLE ventas ADD COLUMN pagos_json TEXT")
+            print("[DB] Migración: columna pagos_json agregada a ventas.")
+        # Migración: columna por_revisar en facturas_proveedores
+        cols_facturas2 = [r[1] for r in conn.execute(
+            "PRAGMA table_info(facturas_proveedores)").fetchall()]
+        if "por_revisar" not in cols_facturas2:
+            conn.execute(
+                "ALTER TABLE facturas_proveedores ADD COLUMN por_revisar INTEGER NOT NULL DEFAULT 0")
+            print("[DB] Migración: columna por_revisar agregada a facturas_proveedores.")
         # Migración: tabla gastos
         if "gastos" not in tablas:
             conn.executescript("""
@@ -477,25 +490,37 @@ def historial_movimientos(producto_id: int = None, limite: int = 100) -> list:
 
 def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
                     cuotas: int = 1, notas: str = "",
-                    recargo_pct: float = 0) -> int:
+                    recargo_pct: float = 0,
+                    pagos: list = None) -> int:
     """
     items: [{"producto_id": int, "cantidad": int, "precio_unit": float}, ...]
     recargo_pct: porcentaje de recargo (+) o descuento (-). Ej: 15 = +15%, -10 = -10%
+    pagos: lista para pago dividido: [{"metodo": "efectivo", "monto": 21000}, ...]
+           Si se provee, medio_pago se sobreescribe con "mixto" (si hay más de uno).
     Retorna el ID de la venta creada.
     """
+    import json as _json
     ahora = datetime.now()
     subtotal = sum(i["cantidad"] * i["precio_unit"] for i in items)
     base  = max(0.0, subtotal - descuento)
     total = base * (1 + recargo_pct / 100)
 
+    # ── Resolver medio_pago y pagos_json ──────────────────────
+    pagos_json = None
+    if pagos and len(pagos) > 1:
+        medio_pago = "mixto"
+        pagos_json = _json.dumps(pagos, ensure_ascii=False)
+    elif pagos and len(pagos) == 1:
+        medio_pago = pagos[0]["metodo"]   # pago simple vía nueva interfaz
+
     with get_connection() as conn:
         cur = conn.execute("""
             INSERT INTO ventas (fecha, hora, datetime_venta, subtotal, descuento, total,
-                                medio_pago, cuotas, notas)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                medio_pago, cuotas, notas, pagos_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (ahora.date().isoformat(), ahora.strftime("%H:%M:%S"),
               ahora.isoformat(), subtotal, descuento, total,
-              medio_pago, cuotas, notas))
+              medio_pago, cuotas, notas, pagos_json))
         venta_id = cur.lastrowid
 
         for item in items:
@@ -546,8 +571,13 @@ def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
                                  (lote["cantidad"] - quitar, lote["id"]))
                     restante -= quitar
 
-        # Actualizar caja diaria
-        _actualizar_caja(conn, ahora.date().isoformat(), medio_pago, total)
+        # Actualizar caja diaria (distribuir entre métodos si pago mixto)
+        # Las extracciones internas no registran cobro en caja
+        if medio_pago != "extraccion":
+            if pagos and len(pagos) > 1:
+                _actualizar_caja_mixto(conn, ahora.date().isoformat(), pagos, total)
+            else:
+                _actualizar_caja(conn, ahora.date().isoformat(), medio_pago, total)
         return venta_id
 
 
@@ -566,6 +596,30 @@ def _actualizar_caja(conn, fecha: str, medio_pago: str, total: float):
             cantidad_ventas = cantidad_ventas + 1,
             ticket_promedio = (total + excluded.total) / (cantidad_ventas + 1)
     """, (fecha, total, total))
+
+
+def _actualizar_caja_mixto(conn, fecha: str, pagos: list, total: float):
+    """Distribuye un pago mixto entre los distintos medios en caja_diaria."""
+    col_map = {
+        "efectivo": "efectivo", "debito": "debito",
+        "credito": "credito", "transferencia": "transferencia", "qr": "qr"
+    }
+    # Primero asegurar que existe la fila del día y sumar cantidad_ventas + total una vez
+    conn.execute("""
+        INSERT INTO caja_diaria (fecha, total, cantidad_ventas)
+        VALUES (?, ?, 1)
+        ON CONFLICT(fecha) DO UPDATE SET
+            total = total + excluded.total,
+            cantidad_ventas = cantidad_ventas + 1,
+            ticket_promedio = (total + excluded.total) / (cantidad_ventas + 1)
+    """, (fecha, total))
+    # Luego sumar cada método por separado (sin contar cantidad_ventas de nuevo)
+    for pago in pagos:
+        col = col_map.get(pago["metodo"], "efectivo")
+        monto = pago["monto"]
+        conn.execute(f"""
+            UPDATE caja_diaria SET {col} = {col} + ? WHERE fecha = ?
+        """, (monto, fecha))
 
 
 def anular_venta(venta_id: int, motivo: str = ""):
@@ -587,16 +641,33 @@ def anular_venta(venta_id: int, motivo: str = ""):
             _registrar_movimiento_conn(conn, item["producto_id"], "devolucion",
                                        item["cantidad"], stock_ant, stock_nuevo,
                                        f"Anulación venta #{venta_id}", venta_id)
-        # Restar de caja diaria
+        # Restar de caja diaria (extracciones no afectan caja)
         fecha = venta["fecha"]
         mp = venta["medio_pago"]
-        col_map = {"efectivo": "efectivo", "debito": "debito",
-                   "credito": "credito", "transferencia": "transferencia", "qr": "qr"}
-        col = col_map.get(mp, "efectivo")
-        conn.execute(f"""
-            UPDATE caja_diaria SET {col} = {col} - ?, total = total - ?,
-            cantidad_ventas = MAX(0, cantidad_ventas - 1) WHERE fecha = ?
-        """, (venta["total"], venta["total"], fecha))
+        total_v = venta["total"]
+        if mp != "extraccion":
+            if mp == "mixto" and venta["pagos_json"]:
+                import json as _json
+                pagos = _json.loads(venta["pagos_json"])
+                col_map = {"efectivo": "efectivo", "debito": "debito",
+                           "credito": "credito", "transferencia": "transferencia", "qr": "qr"}
+                conn.execute("""
+                    UPDATE caja_diaria SET total = total - ?,
+                    cantidad_ventas = MAX(0, cantidad_ventas - 1) WHERE fecha = ?
+                """, (total_v, fecha))
+                for pago in pagos:
+                    col = col_map.get(pago["metodo"], "efectivo")
+                    conn.execute(f"""
+                        UPDATE caja_diaria SET {col} = {col} - ? WHERE fecha = ?
+                    """, (pago["monto"], fecha))
+            else:
+                col_map = {"efectivo": "efectivo", "debito": "debito",
+                           "credito": "credito", "transferencia": "transferencia", "qr": "qr"}
+                col = col_map.get(mp, "efectivo")
+                conn.execute(f"""
+                    UPDATE caja_diaria SET {col} = {col} - ?, total = total - ?,
+                    cantidad_ventas = MAX(0, cantidad_ventas - 1) WHERE fecha = ?
+                """, (total_v, total_v, fecha))
         return True
 
 
@@ -849,7 +920,8 @@ def eliminar_factura_proveedor(factura_id: int):
 
 
 def obtener_facturas_proveedor(proveedor_id: int = None,
-                                estado: str = None) -> list:
+                                estado: str = None,
+                                por_revisar: bool = False) -> list:
     """Todas las facturas enriquecidas con datos del proveedor."""
     with get_connection() as conn:
         conds  = []
@@ -857,7 +929,9 @@ def obtener_facturas_proveedor(proveedor_id: int = None,
         if proveedor_id:
             conds.append("f.proveedor_id = ?")
             params.append(proveedor_id)
-        if estado:
+        if por_revisar:
+            conds.append("f.por_revisar = 1")
+        elif estado:
             conds.append("f.estado = ?")
             params.append(estado)
         where = ("WHERE " + " AND ".join(conds)) if conds else ""
