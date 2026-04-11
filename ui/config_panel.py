@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFormLayout, QGroupBox, QSpinBox,
     QMessageBox, QTabWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QDialog, QTextEdit, QComboBox, QCheckBox
+    QHeaderView, QDialog, QTextEdit, QComboBox, QCheckBox, QFrame
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 import sys, os
@@ -155,6 +155,24 @@ class ConfigPanel(QWidget):
             ("Vinoteca — Sistema de Gestión", "font-size:16pt; font-weight:800; color:#C9A84C;"),
             (f"Versión {v_mostrar}", "color:#888; font-size:11pt;"),
             ("Desarrollado con Python + PyQt6", "color:#666; font-size:10pt;"),
+        ]:
+            lbl = QLabel(texto)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet(estilo)
+            lay_about.addWidget(lbl)
+
+        lay_about.addSpacing(12)
+
+        sep_about = QFrame()
+        sep_about.setFrameShape(QFrame.Shape.HLine)
+        sep_about.setStyleSheet("color:#333; margin:0 60px;")
+        lay_about.addWidget(sep_about)
+
+        lay_about.addSpacing(8)
+
+        for texto, estilo in [
+            ("Autor:  Nicolás Díaz", "color:#CCCCCC; font-size:10pt; font-weight:600;"),
+            ("📱  3512118820", "color:#888; font-size:10pt;"),
         ]:
             lbl = QLabel(texto)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
