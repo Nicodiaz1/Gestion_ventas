@@ -134,6 +134,7 @@ class CarritoWidget(QWidget):
         self.nombre_cliente     = nombre_cliente
         self.carrito: list[ItemCarrito] = []
         self.medio_pago_actual  = "efectivo"
+        self._ajustando_total   = False
         self._build_ui()
         QTimer.singleShot(100, self.scan_input.setFocus)
 
@@ -206,6 +207,24 @@ class CarritoWidget(QWidget):
         porc_lay.addWidget(lbl_porc)
         porc_lay.addWidget(self.spin_porcentaje)
         totales_row.addLayout(porc_lay)
+
+        # Total manual (escribir el monto final directamente)
+        monto_lay = QVBoxLayout()
+        lbl_monto = QLabel("Total a cobrar $:")
+        lbl_monto.setStyleSheet("color:#AAAAAA; font-size:10pt;")
+        self.spin_total_final = QDoubleSpinBox()
+        self.spin_total_final.setRange(0, 99999999)
+        self.spin_total_final.setDecimals(2)
+        self.spin_total_final.setSingleStep(100)
+        self.spin_total_final.setPrefix("$ ")
+        self.spin_total_final.setMinimumWidth(140)
+        self.spin_total_final.setToolTip(
+            "Escribí el monto exacto a cobrar.\n"
+            "El % de descuento/recargo se ajusta automáticamente.")
+        self.spin_total_final.valueChanged.connect(self._on_total_manual_changed)
+        monto_lay.addWidget(lbl_monto)
+        monto_lay.addWidget(self.spin_total_final)
+        totales_row.addLayout(monto_lay)
         totales_row.addStretch()
 
         total_lay = QVBoxLayout()
@@ -518,6 +537,7 @@ class CarritoWidget(QWidget):
             if resp == QMessageBox.StandardButton.Yes:
                 self.carrito.clear()
                 self.spin_porcentaje.setValue(0)
+                self.spin_total_final.setValue(0)
                 for metodo, txt in self._montos.items():
                     txt.setText("0")
                 self._refrescar_tabla()
@@ -526,20 +546,41 @@ class CarritoWidget(QWidget):
     def _actualizar_total(self):
         subtotal   = sum(i.subtotal for i in self.carrito)
         porcentaje = self.spin_porcentaje.value()
-        total      = subtotal * (1 + porcentaje / 100)
+        total      = round(subtotal * (1 + porcentaje / 100), 2)
         self.lbl_total.setText(f"${total:,.2f}")
+        if not self._ajustando_total:
+            self._ajustando_total = True
+            self.spin_total_final.setValue(total)
+            self._ajustando_total = False
+        self._actualizar_lbl_total(porcentaje)
+        self._actualizar_pendiente()
+
+    def _actualizar_lbl_total(self, porcentaje: float):
         if porcentaje > 0:
-            self.lbl_tit_total.setText(f"TOTAL  (+{porcentaje:.0f}% recargo)")
+            self.lbl_tit_total.setText(f"TOTAL  (+{porcentaje:.1f}% recargo)")
             self.lbl_tit_total.setStyleSheet(
                 "color:#EF5350; font-size:10pt; font-weight:600;")
         elif porcentaje < 0:
-            self.lbl_tit_total.setText(f"TOTAL  ({porcentaje:.0f}% desc.)")
+            self.lbl_tit_total.setText(f"TOTAL  ({porcentaje:.1f}% desc.)")
             self.lbl_tit_total.setStyleSheet(
                 "color:#66BB6A; font-size:10pt; font-weight:600;")
         else:
             self.lbl_tit_total.setText("TOTAL A COBRAR")
             self.lbl_tit_total.setStyleSheet(
                 "color:#AAAAAA; font-size:10pt; font-weight:600;")
+
+    def _on_total_manual_changed(self, total: float):
+        """Cuando el usuario escribe el monto final: back-calcula el %."""
+        if self._ajustando_total:
+            return
+        subtotal = sum(i.subtotal for i in self.carrito)
+        self._ajustando_total = True
+        if subtotal > 0:
+            porcentaje = round((total / subtotal - 1) * 100, 1)
+            self.spin_porcentaje.setValue(porcentaje)
+            self._actualizar_lbl_total(porcentaje)
+        self.lbl_total.setText(f"${total:,.2f}")
+        self._ajustando_total = False
         self._actualizar_pendiente()
 
     def _set_medio_pago(self, valor: str):
@@ -678,7 +719,7 @@ class CarritoWidget(QWidget):
 
         subtotal   = sum(i.subtotal for i in self.carrito)
         porcentaje = self.spin_porcentaje.value()
-        total      = subtotal * (1 + porcentaje / 100)
+        total      = round(self.spin_total_final.value(), 2)
 
         pagos = self._get_pagos()
         if not pagos:
@@ -709,6 +750,7 @@ class CarritoWidget(QWidget):
                     pagos=pagos)
                 self.carrito.clear()
                 self.spin_porcentaje.setValue(0)
+                self.spin_total_final.setValue(0)
                 for txt in self._montos.values():
                     txt.setText("0")
                 self._refrescar_tabla()
@@ -756,6 +798,7 @@ class CarritoWidget(QWidget):
                 items_db, "extraccion", descuento=0, recargo_pct=0)
             self.carrito.clear()
             self.spin_porcentaje.setValue(0)
+            self.spin_total_final.setValue(0)
             for txt in self._montos.values():
                 txt.setText("0")
             self._refrescar_tabla()
