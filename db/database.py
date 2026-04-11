@@ -484,6 +484,19 @@ def historial_movimientos(producto_id: int = None, limite: int = 100) -> list:
         """, (limite,)).fetchall()
 
 
+def eliminar_movimiento_historial(movimiento_id: int):
+    """Elimina un registro del historial de stock. No revierte el stock físico."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM stock_movimientos WHERE id = ?", (movimiento_id,))
+
+
+def actualizar_movimiento_historial(movimiento_id: int, motivo: str):
+    """Edita el campo motivo de un movimiento del historial."""
+    with get_connection() as conn:
+        conn.execute("UPDATE stock_movimientos SET motivo = ? WHERE id = ?",
+                     (motivo, movimiento_id))
+
+
 # ══════════════════════════════════════════════════════════════
 #  VENTAS
 # ══════════════════════════════════════════════════════════════

@@ -1342,14 +1342,32 @@ class StockWidget(QWidget):
         # Tab 3: Historial movimientos
         tab_historial = QWidget()
         lay_h = QVBoxLayout(tab_historial)
+        lay_h.setSpacing(8)
+        lay_h.setContentsMargins(8, 8, 8, 8)
 
-        self.tabla_historial = QTableWidget(0, 6)
+        lbl_hist_hint = QLabel(
+            "✏️  Podés editar el motivo o borrar un registro. "
+            "Borrar solo elimina el registro — no revierte el stock.")
+        lbl_hist_hint.setStyleSheet("color:#888; font-size:9pt;")
+        lay_h.addWidget(lbl_hist_hint)
+
+        self.tabla_historial = QTableWidget(0, 7)
         self.tabla_historial.setHorizontalHeaderLabels([
-            "Fecha", "Producto", "Tipo", "Cantidad", "Stock antes", "Stock después"
+            "Fecha", "Producto", "Tipo", "Cantidad",
+            "Stock antes", "Stock después", "Acciones"
         ])
-        self.tabla_historial.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr_h = self.tabla_historial.horizontalHeader()
+        hdr_h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr_h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_h.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_h.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_h.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        self.tabla_historial.setColumnWidth(6, 160)
         self.tabla_historial.setAlternatingRowColors(True)
         self.tabla_historial.verticalHeader().setVisible(False)
+        self.tabla_historial.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         lay_h.addWidget(self.tabla_historial)
         tab_historial.setLayout(lay_h)
         tabs.addTab(tab_historial, "📜  Historial")
@@ -1582,25 +1600,85 @@ class StockWidget(QWidget):
                 self.tabla_sin_rotacion.setItem(i, 4, QTableWidgetItem("∞"))
 
     def _cargar_historial(self):
-        movs = db.historial_movimientos(limite=200)
+        movs = db.historial_movimientos(limite=300)
         self.tabla_historial.setRowCount(len(movs))
         tipo_colores = {
-            "entrada": "#2E7D32", "salida": "#B71C1C",
-            "ajuste": "#E65100", "devolucion": "#0D47A1"
+            "entrada":    "#2E7D32",
+            "salida":     "#B71C1C",
+            "ajuste":     "#E65100",
+            "devolucion": "#0D47A1",
         }
         for i, m in enumerate(movs):
+            mdict = dict(m)
             fecha_str = str(m["fecha"])[:16]
             self.tabla_historial.setItem(i, 0, QTableWidgetItem(fecha_str))
             self.tabla_historial.setItem(i, 1, QTableWidgetItem(m["producto_nombre"]))
             tipo_item = QTableWidgetItem(m["tipo"].capitalize())
-            color = tipo_colores.get(m["tipo"], "#FFFFFF")
-            tipo_item.setForeground(QColor(color))
+            tipo_item.setForeground(QColor(tipo_colores.get(m["tipo"], "#FFFFFF")))
             self.tabla_historial.setItem(i, 2, tipo_item)
             self.tabla_historial.setItem(i, 3, QTableWidgetItem(str(m["cantidad"])))
             self.tabla_historial.setItem(i, 4, QTableWidgetItem(
                 str(m["stock_anterior"]) if m["stock_anterior"] is not None else "—"))
             self.tabla_historial.setItem(i, 5, QTableWidgetItem(
                 str(m["stock_nuevo"]) if m["stock_nuevo"] is not None else "—"))
+
+            # Col 6: botones Editar/Borrar
+            acc_w = QWidget()
+            acc_lay = QHBoxLayout(acc_w)
+            acc_lay.setContentsMargins(4, 2, 4, 2)
+            acc_lay.setSpacing(4)
+
+            btn_edit_h = QPushButton("✏ Editar")
+            btn_edit_h.setFixedHeight(26)
+            btn_edit_h.setStyleSheet(
+                "QPushButton{background:#2C2C2C;border:1px solid #555;"
+                "border-radius:4px;color:#F5F5F5;font-size:9pt;padding:0 6px;}"
+                "QPushButton:hover{background:#3C3C3C;}"
+            )
+            btn_edit_h.clicked.connect(
+                lambda _, md=mdict: self._editar_movimiento_historial(md))
+
+            btn_del_h = QPushButton("🗑 Borrar")
+            btn_del_h.setFixedHeight(26)
+            btn_del_h.setStyleSheet(
+                "QPushButton{background:#7F0000;color:white;border-radius:4px;"
+                "font-size:9pt;padding:0 6px;}"
+                "QPushButton:hover{background:#B71C1C;}"
+            )
+            btn_del_h.clicked.connect(
+                lambda _, md=mdict: self._borrar_movimiento_historial(md))
+
+            acc_lay.addWidget(btn_edit_h)
+            acc_lay.addWidget(btn_del_h)
+            self.tabla_historial.setCellWidget(i, 6, acc_w)
+            self.tabla_historial.setRowHeight(i, 36)
+
+    def _editar_movimiento_historial(self, mdict: dict):
+        from PyQt6.QtWidgets import QInputDialog
+        motivo_actual = mdict.get("motivo") or ""
+        nuevo_motivo, ok = QInputDialog.getText(
+            self, "Editar motivo",
+            f"Producto: {mdict['producto_nombre']}\n"
+            f"Tipo: {mdict['tipo'].capitalize()}  |  Cantidad: {mdict['cantidad']}\n\n"
+            "Motivo:",
+            text=motivo_actual
+        )
+        if ok:
+            db.actualizar_movimiento_historial(mdict["id"], nuevo_motivo.strip())
+            self._cargar_historial()
+
+    def _borrar_movimiento_historial(self, mdict: dict):
+        resp = QMessageBox.question(
+            self, "Confirmar eliminación",
+            f"¿Eliminar este registro del historial?\n\n"
+            f"  Producto: {mdict['producto_nombre']}\n"
+            f"  Tipo: {mdict['tipo'].capitalize()}  |  Cantidad: {mdict['cantidad']}\n\n"
+            "⚠️  El stock actual NO se modifica.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp == QMessageBox.StandardButton.Yes:
+            db.eliminar_movimiento_historial(mdict["id"])
+            self._cargar_historial()
 
     def _nuevo_producto(self):
         dlg = DialogoProducto(self)
@@ -1739,7 +1817,7 @@ class StockWidget(QWidget):
         ctrl_lay.addWidget(btn_confirmar)
 
         lay.addWidget(ctrl_w)
-        # {producto_id: (row, spin_costo, spin_venta)}
+        # {producto_id: (row, spin_costo, spin_margen, spin_venta)}
         self._prec_spins = {}
         # Row indices where user manually overrode nuevo_precio (don't auto-fill)
         self._prec_venta_manual = set()
@@ -1796,12 +1874,16 @@ class StockWidget(QWidget):
                     self._prec_on_costo_changed(row, v, origc, origv, origm))
             self.prec_tabla.setCellWidget(i, 4, spin_costo)
 
-            # Col 5: margen actual (readonly)
-            it_margen = QTableWidgetItem(
-                f"{margen_orig * 100:+.1f}%" if costo_orig > 0 else "—")
-            it_margen.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            it_margen.setForeground(QColor("#C9A84C") if costo_orig > 0 else QColor("#666"))
-            self.prec_tabla.setItem(i, 5, it_margen)
+            # Col 5: margen (spinbox editable)
+            spin_margen = QDoubleSpinBox()
+            spin_margen.setRange(-99, 9999)
+            spin_margen.setDecimals(1)
+            spin_margen.setSuffix(" %")
+            spin_margen.setValue(round(margen_orig * 100, 1) if costo_orig > 0 else 0.0)
+            spin_margen.setEnabled(costo_orig > 0)
+            spin_margen.valueChanged.connect(
+                lambda pct, row=i: self._prec_on_margen_changed(row, pct))
+            self.prec_tabla.setCellWidget(i, 5, spin_margen)
 
             # Col 6: precio venta actual (readonly)
             it_venta_actual = QTableWidgetItem(f"$ {venta_orig:,.2f}")
@@ -1830,7 +1912,7 @@ class StockWidget(QWidget):
             self.prec_tabla.setItem(i, 8, it_delta)
 
             self.prec_tabla.setRowHeight(i, 46)
-            self._prec_spins[pid] = (i, spin_costo, spin_venta)
+            self._prec_spins[pid] = (i, spin_costo, spin_margen, spin_venta)
 
         # Ajustar filas a contenido (permite 2 líneas si el nombre es largo)
         self.prec_tabla.resizeRowsToContents()
@@ -1838,22 +1920,28 @@ class StockWidget(QWidget):
     def _prec_on_costo_changed(self, row: int, nuevo_costo: float,
                                 orig_costo: float, orig_venta: float, margen_orig: float):
         """Cuando cambia el nuevo costo: auto-ajusta el precio de venta si el usuario no lo tocó."""
-        # Actualizar margen dinámico en col 5
-        spin_venta = self.prec_tabla.cellWidget(row, 7)
-        nuevo_venta = spin_venta.value() if spin_venta else orig_venta
+        spin_margen = self.prec_tabla.cellWidget(row, 5)
+        spin_venta  = self.prec_tabla.cellWidget(row, 7)
 
-        if nuevo_costo > 0:
-            margen_actual = nuevo_venta / nuevo_costo - 1 if nuevo_costo > 0 else margen_orig
-            it_margen = self.prec_tabla.item(row, 5)
-            if it_margen:
-                it_margen.setText(f"{margen_actual * 100:+.1f}%")
-                it_margen.setForeground(QColor("#C9A84C"))
+        if spin_margen:
+            spin_margen.setEnabled(nuevo_costo > 0)
 
-        # Auto-ajustar precio de venta usando el margen original
-        if spin_venta and row not in self._prec_venta_manual:
+        # Auto-ajustar precio de venta usando el margen del spinbox
+        if spin_venta and row not in self._prec_venta_manual and nuevo_costo > 0:
+            margen_pct = spin_margen.value() if spin_margen else margen_orig * 100
             self._prec_auto_filling = True
-            nuevo_precio_sugerido = round(nuevo_costo * (1 + margen_orig), 2)
-            spin_venta.setValue(nuevo_precio_sugerido)
+            spin_venta.setValue(round(nuevo_costo * (1 + margen_pct / 100), 2))
+            self._prec_auto_filling = False
+
+    def _prec_on_margen_changed(self, row: int, pct: float):
+        """Cuando cambia el margen: recalcula el precio de venta."""
+        if self._prec_auto_filling:
+            return
+        spin_costo = self.prec_tabla.cellWidget(row, 4)
+        spin_venta = self.prec_tabla.cellWidget(row, 7)
+        if spin_costo and spin_venta and spin_costo.value() > 0:
+            self._prec_auto_filling = True
+            spin_venta.setValue(round(spin_costo.value() * (1 + pct / 100), 2))
             self._prec_auto_filling = False
 
     def _prec_on_venta_changed(self, row: int, nuevo_venta: float, orig_venta: float):
@@ -1876,19 +1964,14 @@ class StockWidget(QWidget):
                 it_delta.setText(f"▼ -{pct:.1f}%")
                 it_delta.setForeground(QColor("#F44336"))
 
-        # Margen dinámico en col 5 (usa nuevo costo del spinbox col 4)
-        spin_costo = self.prec_tabla.cellWidget(row, 4)
-        if spin_costo:
-            nuevo_costo = spin_costo.value()
-            it_margen = self.prec_tabla.item(row, 5)
-            if it_margen:
-                if nuevo_costo > 0:
-                    m = nuevo_venta / nuevo_costo - 1
-                    it_margen.setText(f"{m * 100:+.1f}%")
-                    it_margen.setForeground(QColor("#C9A84C"))
-                else:
-                    it_margen.setText("—")
-                    it_margen.setForeground(QColor("#666"))
+        # Actualizar margen spinbox (col 5) con el margen actual
+        if not self._prec_auto_filling:
+            spin_costo  = self.prec_tabla.cellWidget(row, 4)
+            spin_margen = self.prec_tabla.cellWidget(row, 5)
+            if spin_costo and spin_margen and spin_costo.value() > 0:
+                self._prec_auto_filling = True
+                spin_margen.setValue(round((nuevo_venta / spin_costo.value() - 1) * 100, 1))
+                self._prec_auto_filling = False
 
     def _prec_filtrar(self):
         texto  = self.prec_txt_filtro.text().lower()
@@ -1944,7 +2027,7 @@ class StockWidget(QWidget):
 
     def _prec_confirmar(self):
         cambios = []
-        for pid, (row, spin_costo, spin_venta) in self._prec_spins.items():
+        for pid, (row, spin_costo, spin_margen, spin_venta) in self._prec_spins.items():
             if self.prec_tabla.isRowHidden(row):
                 continue
             nuevo_costo = spin_costo.value()
