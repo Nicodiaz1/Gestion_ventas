@@ -656,13 +656,13 @@ class ExportarWidget(QWidget):
         lay.addWidget(lbl_tit)
 
         lbl_desc = QLabel(
-            "Copia de seguridad automática de la base de datos.\n"
-            "Se guarda con fecha en la carpeta que elijas (OneDrive, pendrive, etc.)."
+            "Copia de seguridad de la base de datos (o exportación Excel selectiva).\n"
+            "Se guarda en la carpeta que elijas (OneDrive, pendrive, etc.)."
         )
         lbl_desc.setStyleSheet("color:#888888; font-size:9pt;")
         lay.addWidget(lbl_desc)
 
-        # Fila: carpeta destino
+        # ── Fila: carpeta destino ─────────────────────────────
         fila_carpeta = QHBoxLayout()
         fila_carpeta.setSpacing(8)
         lbl_c = QLabel("Carpeta:")
@@ -689,7 +689,41 @@ class ExportarWidget(QWidget):
         fila_carpeta.addWidget(btn_elegir)
         lay.addLayout(fila_carpeta)
 
-        # Fila: frecuencia + último backup
+        # ── Fila: modo de archivo (sobreescribir / con fecha) ──
+        fila_modo = QHBoxLayout()
+        fila_modo.setSpacing(8)
+        from PyQt6.QtWidgets import QRadioButton, QButtonGroup
+        lbl_modo = QLabel("Modo:")
+        lbl_modo.setStyleSheet("color:#CCCCCC; min-width:70px;")
+        fila_modo.addWidget(lbl_modo)
+
+        self._grp_modo = QButtonGroup(frame)
+        self._rb_sobreescribir = QRadioButton("Sobreescribir (un solo archivo)")
+        self._rb_sobreescribir.setStyleSheet("color:#CCCCCC; font-size:9pt;")
+        self._rb_con_fecha = QRadioButton("Agregar con fecha (historial)")
+        self._rb_con_fecha.setStyleSheet("color:#CCCCCC; font-size:9pt;")
+        self._grp_modo.addButton(self._rb_sobreescribir, 0)
+        self._grp_modo.addButton(self._rb_con_fecha, 1)
+
+        modo_guardado = db.get_config("backup_modo", "fecha")
+        if modo_guardado == "sobreescribir":
+            self._rb_sobreescribir.setChecked(True)
+        else:
+            self._rb_con_fecha.setChecked(True)
+
+        def _guardar_modo():
+            modo = "sobreescribir" if self._rb_sobreescribir.isChecked() else "fecha"
+            db.set_config("backup_modo", modo, "string")
+
+        self._rb_sobreescribir.toggled.connect(_guardar_modo)
+
+        fila_modo.addWidget(self._rb_sobreescribir)
+        fila_modo.addSpacing(16)
+        fila_modo.addWidget(self._rb_con_fecha)
+        fila_modo.addStretch()
+        lay.addLayout(fila_modo)
+
+        # ── Fila: frecuencia + último backup ──────────────────
         fila_freq = QHBoxLayout()
         fila_freq.setSpacing(8)
         lbl_f = QLabel("Cada:")
@@ -725,7 +759,54 @@ class ExportarWidget(QWidget):
         fila_freq.addStretch()
         lay.addLayout(fila_freq)
 
-        # Botón manual
+        # ── Qué incluir en el backup ──────────────────────────
+        sep_scope = QFrame()
+        sep_scope.setFrameShape(QFrame.Shape.HLine)
+        sep_scope.setStyleSheet("color:#2E7D32; margin:2px 0;")
+        lay.addWidget(sep_scope)
+
+        lbl_scope = QLabel("¿Qué incluir?")
+        lbl_scope.setStyleSheet("color:#CCCCCC; font-size:9pt; font-weight:600;")
+        lay.addWidget(lbl_scope)
+
+        from PyQt6.QtWidgets import QCheckBox as _QChk
+        fila_scope = QHBoxLayout()
+        fila_scope.setSpacing(16)
+
+        chk_style = "color:#CCCCCC; font-size:9pt;"
+        self._chk_bk_db       = _QChk("🗄 Base de datos completa")
+        self._chk_bk_ventas   = _QChk("🛒 Excel ventas")
+        self._chk_bk_stock    = _QChk("📦 Excel stock")
+        self._chk_bk_cuentas  = _QChk("🧾 Excel cuentas")
+
+        for chk in (self._chk_bk_db, self._chk_bk_ventas,
+                    self._chk_bk_stock, self._chk_bk_cuentas):
+            chk.setStyleSheet(chk_style)
+
+        # Restaurar preferencias guardadas
+        self._chk_bk_db.setChecked(db.get_config("backup_scope_db", "1") != "0")
+        self._chk_bk_ventas.setChecked(db.get_config("backup_scope_ventas", "0") == "1")
+        self._chk_bk_stock.setChecked(db.get_config("backup_scope_stock", "0") == "1")
+        self._chk_bk_cuentas.setChecked(db.get_config("backup_scope_cuentas", "0") == "1")
+
+        def _save_scope():
+            db.set_config("backup_scope_db",      "1" if self._chk_bk_db.isChecked()      else "0", "string")
+            db.set_config("backup_scope_ventas",   "1" if self._chk_bk_ventas.isChecked()  else "0", "string")
+            db.set_config("backup_scope_stock",    "1" if self._chk_bk_stock.isChecked()   else "0", "string")
+            db.set_config("backup_scope_cuentas",  "1" if self._chk_bk_cuentas.isChecked() else "0", "string")
+
+        for chk in (self._chk_bk_db, self._chk_bk_ventas,
+                    self._chk_bk_stock, self._chk_bk_cuentas):
+            chk.stateChanged.connect(lambda _: _save_scope())
+
+        fila_scope.addWidget(self._chk_bk_db)
+        fila_scope.addWidget(self._chk_bk_ventas)
+        fila_scope.addWidget(self._chk_bk_stock)
+        fila_scope.addWidget(self._chk_bk_cuentas)
+        fila_scope.addStretch()
+        lay.addLayout(fila_scope)
+
+        # ── Botón manual ──────────────────────────────────────
         fila_btn = QHBoxLayout()
         fila_btn.addStretch()
         self._btn_backup_ahora = QPushButton("💾  Hacer backup ahora")
@@ -757,28 +838,107 @@ class ExportarWidget(QWidget):
                 )
             return
 
-        # Ruta del archivo de la base de datos
-        from config import BASE_DIR
-        origen = os.path.join(BASE_DIR, "db", "vinoteca.db")
-        if not os.path.exists(origen):
+        # Verificar que al menos un scope esté seleccionado
+        include_db      = hasattr(self, "_chk_bk_db")      and self._chk_bk_db.isChecked()
+        include_ventas  = hasattr(self, "_chk_bk_ventas")  and self._chk_bk_ventas.isChecked()
+        include_stock   = hasattr(self, "_chk_bk_stock")   and self._chk_bk_stock.isChecked()
+        include_cuentas = hasattr(self, "_chk_bk_cuentas") and self._chk_bk_cuentas.isChecked()
+
+        if not any([include_db, include_ventas, include_stock, include_cuentas]):
             if not silencioso:
-                QMessageBox.critical(self, "Error", "No se encontró la base de datos.")
+                QMessageBox.warning(self, "Nada seleccionado",
+                    "Marcá al menos una opción de qué incluir en el backup.")
             return
 
-        fecha_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        nombre    = f"vinoteca_backup_{fecha_str}.db"
-        destino   = os.path.join(carpeta, nombre)
+        sobreescribir = (hasattr(self, "_rb_sobreescribir")
+                         and self._rb_sobreescribir.isChecked())
 
+        fecha_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
         self._btn_backup_ahora.setEnabled(False)
         self._btn_backup_ahora.setText("Guardando…")
 
-        self._backup_worker = BackupWorker(origen, destino)
-        self._backup_worker.terminado.connect(
-            lambda ok, msg: self._on_backup_terminado(ok, msg, silencioso)
-        )
-        self._backup_worker.start()
+        self._pending_backups = []          # lista de (ok, ruta)
+        self._total_backups   = 0
+
+        # ── 1. Copia de la base de datos ──────────────────────
+        if include_db:
+            from config import BASE_DIR
+            origen = os.path.join(BASE_DIR, "db", "vinoteca.db")
+            if os.path.exists(origen):
+                if sobreescribir:
+                    nombre_db = "vinoteca_backup.db"
+                else:
+                    nombre_db = f"vinoteca_backup_{fecha_str}.db"
+                destino_db = os.path.join(carpeta, nombre_db)
+                self._total_backups += 1
+                _w = BackupWorker(origen, destino_db)
+                _w.terminado.connect(self._on_un_backup_done)
+                _w.start()
+                self._backup_worker = _w   # evitar GC
+
+        # ── 2. Excel por tipo ─────────────────────────────────
+        TIPOS_EXCEL = []
+        if include_ventas:
+            TIPOS_EXCEL.append(("completo_ventas", "ventas_completo"))
+        if include_stock:
+            TIPOS_EXCEL.append(("stock", "stock_actual"))
+        if include_cuentas:
+            TIPOS_EXCEL.append(("proveedores", "cuentas_proveedores"))
+
+        self._excel_workers = []
+        for tipo_worker, nombre_base in TIPOS_EXCEL:
+            if sobreescribir:
+                nombre_xlsx = f"{nombre_base}.xlsx"
+            else:
+                nombre_xlsx = f"{nombre_base}_{fecha_str}.xlsx"
+            ruta_xlsx = os.path.join(carpeta, nombre_xlsx)
+
+            # Para ventas usamos reporte completo (resumen + detalle)
+            tipo_real = tipo_worker
+            if tipo_worker == "completo_ventas":
+                tipo_real = "completo"
+
+            self._total_backups += 1
+            _ew = ExportWorker(tipo_real, ruta_xlsx, "historico")
+            _ew.terminado.connect(self._on_un_backup_done)
+            _ew.start()
+            self._excel_workers.append(_ew)
+
+        if self._total_backups == 0:
+            self._btn_backup_ahora.setEnabled(True)
+            self._btn_backup_ahora.setText("💾  Hacer backup ahora")
+
+    def _on_un_backup_done(self, exito: bool, ruta_o_error: str):
+        self._pending_backups.append((exito, ruta_o_error))
+        if len(self._pending_backups) < self._total_backups:
+            return   # esperar el resto
+
+        # Todos terminaron
+        self._btn_backup_ahora.setEnabled(True)
+        self._btn_backup_ahora.setText("💾  Hacer backup ahora")
+
+        errores  = [msg for ok, msg in self._pending_backups if not ok]
+        correctos = [ruta for ok, ruta in self._pending_backups if ok]
+
+        if correctos:
+            ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            db.set_config("backup_ultima_fecha", ahora, "string")
+            self._lbl_ultima.setText(f"Último backup: {ahora}")
+
+        if errores:
+            QMessageBox.critical(
+                self, "Error en backup",
+                f"Algunos archivos no se pudieron guardar:\n" + "\n".join(errores)
+            )
+        elif correctos:
+            QMessageBox.information(
+                self, "Backup exitoso",
+                f"✅  {len(correctos)} archivo(s) guardado(s) correctamente en:\n"
+                + os.path.dirname(correctos[0])
+            )
 
     def _on_backup_terminado(self, exito: bool, ruta_o_error: str, silencioso: bool):
+        """Compatibilidad con backups silenciosos del auto-backup."""
         self._btn_backup_ahora.setEnabled(True)
         self._btn_backup_ahora.setText("💾  Hacer backup ahora")
 

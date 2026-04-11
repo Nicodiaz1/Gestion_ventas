@@ -125,11 +125,15 @@ class ConfigPanel(QWidget):
         header_prov.addWidget(btn_nuevo_prov)
         lay_prov.addLayout(header_prov)
 
-        self.tabla_prov = QTableWidget(0, 4)
-        self.tabla_prov.setHorizontalHeaderLabels(["Nombre", "Teléfono", "Email", "Notas"])
-        self.tabla_prov.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tabla_prov = QTableWidget(0, 5)
+        self.tabla_prov.setHorizontalHeaderLabels(["Nombre", "Teléfono", "Email", "Notas", "Acciones"])
+        hdr_prov = self.tabla_prov.horizontalHeader()
+        hdr_prov.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr_prov.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.tabla_prov.setColumnWidth(4, 140)
         self.tabla_prov.setAlternatingRowColors(True)
         self.tabla_prov.verticalHeader().setVisible(False)
+        self.tabla_prov.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         lay_prov.addWidget(self.tabla_prov)
         self._cargar_proveedores()
         tabs.addTab(tab_prov, "🚚  Proveedores")
@@ -268,36 +272,101 @@ class ConfigPanel(QWidget):
         provs = db.obtener_proveedores()
         self.tabla_prov.setRowCount(len(provs))
         for i, p in enumerate(provs):
+            pdict = dict(p)
             self.tabla_prov.setItem(i, 0, QTableWidgetItem(p["nombre"]))
             self.tabla_prov.setItem(i, 1, QTableWidgetItem(p["telefono"] or ""))
             self.tabla_prov.setItem(i, 2, QTableWidgetItem(p["email"] or ""))
             self.tabla_prov.setItem(i, 3, QTableWidgetItem(p["notas"] or ""))
 
+            # Col 4: Acciones
+            acc_w = QWidget()
+            acc_lay = QHBoxLayout(acc_w)
+            acc_lay.setContentsMargins(4, 2, 4, 2)
+            acc_lay.setSpacing(4)
+            btn_edit = QPushButton("✏ Editar")
+            btn_edit.setFixedHeight(26)
+            btn_edit.setStyleSheet(
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+                "color:#F5F5F5;font-size:9pt;padding:0 6px;}"
+                "QPushButton:hover{background:#3C3C3C;}"
+            )
+            btn_edit.clicked.connect(lambda _, pd=pdict: self._editar_proveedor(pd))
+            btn_del = QPushButton("🗑 Borrar")
+            btn_del.setFixedHeight(26)
+            btn_del.setStyleSheet(
+                "QPushButton{background:#7F0000;color:white;border-radius:4px;"
+                "font-size:9pt;padding:0 6px;}"
+                "QPushButton:hover{background:#B71C1C;}"
+            )
+            btn_del.clicked.connect(lambda _, pd=pdict: self._eliminar_proveedor(pd))
+            acc_lay.addWidget(btn_edit)
+            acc_lay.addWidget(btn_del)
+            self.tabla_prov.setCellWidget(i, 4, acc_w)
+            self.tabla_prov.setRowHeight(i, 36)
+
     def _nuevo_proveedor(self):
+        self._dialogo_proveedor()
+
+    def _dialogo_proveedor(self, proveedor: dict = None):
+        """Abre el diálogo para crear o editar un proveedor."""
+        es_nuevo = proveedor is None
         dlg = QDialog(self)
-        dlg.setWindowTitle("Nuevo Proveedor")
-        dlg.setMinimumWidth(380)
+        dlg.setWindowTitle("Nuevo Proveedor" if es_nuevo else "Editar Proveedor")
+        dlg.setMinimumWidth(400)
         lay = QVBoxLayout(dlg)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+        titulo = QLabel("🚚  " + dlg.windowTitle())
+        titulo.setStyleSheet("font-size:13pt; font-weight:700; color:#C9A84C;")
+        lay.addWidget(titulo)
         form = QFormLayout()
-        txt_nombre = QLineEdit()
-        txt_tel    = QLineEdit()
-        txt_email  = QLineEdit()
-        txt_notas  = QLineEdit()
+        form.setSpacing(10)
+        txt_nombre = QLineEdit(proveedor["nombre"] if proveedor else "")
+        txt_tel    = QLineEdit(proveedor["telefono"] if proveedor and proveedor.get("telefono") else "")
+        txt_email  = QLineEdit(proveedor["email"] if proveedor and proveedor.get("email") else "")
+        txt_notas  = QLineEdit(proveedor["notas"] if proveedor and proveedor.get("notas") else "")
         form.addRow("Nombre *:", txt_nombre)
         form.addRow("Teléfono:", txt_tel)
         form.addRow("Email:",    txt_email)
         form.addRow("Notas:",    txt_notas)
         lay.addLayout(form)
         btn_row = QHBoxLayout()
-        btn_ok = QPushButton("Guardar")
-        btn_ok.clicked.connect(dlg.accept)
+        btn_ok = QPushButton("💾  Guardar")
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.setObjectName("btn_secundario")
         btn_cancel.clicked.connect(dlg.reject)
+        btn_ok.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
         lay.addLayout(btn_row)
-        if dlg.exec() == QDialog.DialogCode.Accepted and txt_nombre.text().strip():
-            db.crear_proveedor(txt_nombre.text(), txt_tel.text(),
-                               txt_email.text(), txt_notas.text())
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            nombre = txt_nombre.text().strip()
+            if not nombre:
+                QMessageBox.warning(self, "Campo requerido", "El nombre del proveedor es obligatorio.")
+                return
+            datos = {
+                "nombre":   nombre,
+                "telefono": txt_tel.text().strip(),
+                "email":    txt_email.text().strip(),
+                "notas":    txt_notas.text().strip(),
+            }
+            if es_nuevo:
+                db.crear_proveedor(datos["nombre"], datos["telefono"],
+                                   datos["email"], datos["notas"])
+            else:
+                db.actualizar_proveedor(proveedor["id"], datos)
+            self._cargar_proveedores()
+
+    def _editar_proveedor(self, proveedor: dict):
+        self._dialogo_proveedor(proveedor)
+
+    def _eliminar_proveedor(self, proveedor: dict):
+        resp = QMessageBox.question(
+            self, "Confirmar eliminación",
+            f"¿Desactivar al proveedor <b>{proveedor['nombre']}</b>?<br><br>"
+            "El proveedor quedará desactivado pero se conservará el historial de facturas.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp == QMessageBox.StandardButton.Yes:
+            db.eliminar_proveedor(proveedor["id"])
             self._cargar_proveedores()

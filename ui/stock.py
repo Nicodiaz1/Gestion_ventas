@@ -1635,27 +1635,49 @@ class StockWidget(QWidget):
         filtro_row.addWidget(self.prec_cmb_cat)
         lay.addLayout(filtro_row)
 
-        # ── Tabla ─────────────────────────────────────────────
-        self.prec_tabla = QTableWidget(0, 6)
+        # ── Nota informativa ─────────────────────────────────
+        lbl_hint = QLabel(
+            "💡  Cuando modificás el <b>Nuevo costo</b>, el <b>Nuevo precio de venta</b> "
+            "se actualiza automáticamente usando el margen actual. Podés ajustarlo a mano después."
+        )
+        lbl_hint.setWordWrap(True)
+        lbl_hint.setStyleSheet("color:#888; font-size:8.5pt; padding:2px 0;")
+        lay.addWidget(lbl_hint)
+
+        # ── Tabla (9 columnas) ────────────────────────────────
+        # ☑ | Producto | Categoría | Costo actual | Nuevo costo | Margen | Venta actual | Nuevo precio | Δ% Venta
+        self.prec_tabla = QTableWidget(0, 9)
         self.prec_tabla.setHorizontalHeaderLabels([
-            "☑", "Producto", "Categoría", "Precio actual", "Nuevo precio", "Cambio"
+            "☑", "Producto", "Categoría",
+            "Costo actual", "Nuevo costo", "Margen",
+            "Venta actual", "Nuevo precio", "Δ% Venta",
         ])
-        self.prec_tabla.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
-        self.prec_tabla.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents)
-        self.prec_tabla.setColumnWidth(0, 44)
-        self.prec_tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.prec_tabla.setColumnWidth(3, 120)
-        self.prec_tabla.setColumnWidth(4, 140)
-        self.prec_tabla.setColumnWidth(5, 90)
+        hdr = self.prec_tabla.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+
+        self.prec_tabla.setColumnWidth(0, 32)
+        self.prec_tabla.setColumnWidth(3, 95)
+        self.prec_tabla.setColumnWidth(4, 115)
+        self.prec_tabla.setColumnWidth(5, 62)
+        self.prec_tabla.setColumnWidth(6, 98)
+        self.prec_tabla.setColumnWidth(7, 120)
+        self.prec_tabla.setColumnWidth(8, 68)
+
         self.prec_tabla.setAlternatingRowColors(True)
         self.prec_tabla.verticalHeader().setVisible(False)
         self.prec_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.prec_tabla.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         lay.addWidget(self.prec_tabla, 1)
 
-        # ── Barra de controles (2 filas) ──────────────────────
+        # ── Barra de controles ────────────────────────────────
         ctrl_w = QWidget()
         ctrl_lay = QHBoxLayout(ctrl_w)
         ctrl_lay.setContentsMargins(0, 4, 0, 0)
@@ -1683,6 +1705,14 @@ class StockWidget(QWidget):
         self.prec_spin_pct.setSuffix(" %")
         self.prec_spin_pct.setMinimumWidth(90)
         ctrl_lay.addWidget(self.prec_spin_pct)
+
+        ctrl_lay.addWidget(QLabel("sobre:"))
+        self.prec_cmb_pct_campo = QComboBox()
+        self.prec_cmb_pct_campo.addItem("Precio venta", "venta")
+        self.prec_cmb_pct_campo.addItem("Precio costo", "costo")
+        self.prec_cmb_pct_campo.setFixedWidth(130)
+        ctrl_lay.addWidget(self.prec_cmb_pct_campo)
+
         btn_aplicar_pct = QPushButton("Aplicar %")
         btn_aplicar_pct.setStyleSheet(
             "QPushButton{background:#1565C0;color:white;font-weight:600;"
@@ -1701,18 +1731,28 @@ class StockWidget(QWidget):
         ctrl_lay.addWidget(btn_confirmar)
 
         lay.addWidget(ctrl_w)
-        self._prec_spins = {}   # {producto_id: (row, spin)}
+        # {producto_id: (row, spin_costo, spin_venta)}
+        self._prec_spins = {}
+        # Row indices where user manually overrode nuevo_precio (don't auto-fill)
+        self._prec_venta_manual = set()
         return w
 
     def _prec_cargar(self):
         """Carga todos los productos en la tabla de precios."""
         self._prec_spins = {}
+        self._prec_venta_manual = set()
+        self._prec_auto_filling = False
         self.prec_tabla.setRowCount(0)
         productos = self.todos_productos if hasattr(self, "todos_productos") else db.obtener_todos_productos()
 
         self.prec_tabla.setRowCount(len(productos))
         for i, p in enumerate(productos):
             pid = p["id"]
+            costo_orig = p["precio_costo"] or 0
+            venta_orig = p["precio_venta"] or 0
+
+            # Margen original (multiplicador, venta / costo - 1)
+            margen_orig = ((venta_orig / costo_orig - 1) if costo_orig > 0 else 0)
 
             # Col 0: checkbox
             chk = QTableWidgetItem()
@@ -1728,50 +1768,116 @@ class StockWidget(QWidget):
             cat = p["categoria_nombre"] if "categoria_nombre" in p.keys() else "—"
             self.prec_tabla.setItem(i, 2, QTableWidgetItem(cat or "—"))
 
-            # Col 3: precio actual (readonly, guarda valor en UserRole)
-            precio_actual = p["precio_venta"] or 0
-            it_precio = QTableWidgetItem(f"$ {precio_actual:,.2f}")
-            it_precio.setData(Qt.ItemDataRole.UserRole, precio_actual)
-            it_precio.setTextAlignment(
+            # Col 3: costo actual (readonly)
+            it_costo_actual = QTableWidgetItem(f"$ {costo_orig:,.2f}")
+            it_costo_actual.setData(Qt.ItemDataRole.UserRole, costo_orig)
+            it_costo_actual.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self.prec_tabla.setItem(i, 3, it_precio)
+            it_costo_actual.setForeground(QColor("#AAAAAA"))
+            self.prec_tabla.setItem(i, 3, it_costo_actual)
 
-            # Col 4: nuevo precio (spinbox editable individualmente)
-            spin = QDoubleSpinBox()
-            spin.setRange(0, 9999999)
-            spin.setDecimals(2)
-            spin.setSingleStep(100)
-            spin.setPrefix("$ ")
-            spin.setValue(precio_actual)
-            spin.valueChanged.connect(
-                lambda v, row=i, orig=precio_actual:
-                    self._prec_actualizar_cambio(row, v, orig))
-            self.prec_tabla.setCellWidget(i, 4, spin)
+            # Col 4: nuevo costo (spinbox)
+            spin_costo = QDoubleSpinBox()
+            spin_costo.setRange(0, 9999999)
+            spin_costo.setDecimals(2)
+            spin_costo.setSingleStep(100)
+            spin_costo.setPrefix("$ ")
+            spin_costo.setValue(costo_orig)
+            spin_costo.valueChanged.connect(
+                lambda v, row=i, origc=costo_orig, origv=venta_orig, origm=margen_orig:
+                    self._prec_on_costo_changed(row, v, origc, origv, origm))
+            self.prec_tabla.setCellWidget(i, 4, spin_costo)
 
-            # Col 5: cambio %
-            it_cambio = QTableWidgetItem("—")
-            it_cambio.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            it_cambio.setForeground(QColor("#666"))
-            self.prec_tabla.setItem(i, 5, it_cambio)
+            # Col 5: margen actual (readonly)
+            it_margen = QTableWidgetItem(
+                f"{margen_orig * 100:+.1f}%" if costo_orig > 0 else "—")
+            it_margen.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_margen.setForeground(QColor("#C9A84C") if costo_orig > 0 else QColor("#666"))
+            self.prec_tabla.setItem(i, 5, it_margen)
+
+            # Col 6: precio venta actual (readonly)
+            it_venta_actual = QTableWidgetItem(f"$ {venta_orig:,.2f}")
+            it_venta_actual.setData(Qt.ItemDataRole.UserRole, venta_orig)
+            it_venta_actual.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            it_venta_actual.setForeground(QColor("#AAAAAA"))
+            self.prec_tabla.setItem(i, 6, it_venta_actual)
+
+            # Col 7: nuevo precio venta (spinbox)
+            spin_venta = QDoubleSpinBox()
+            spin_venta.setRange(0, 9999999)
+            spin_venta.setDecimals(2)
+            spin_venta.setSingleStep(100)
+            spin_venta.setPrefix("$ ")
+            spin_venta.setValue(venta_orig)
+            spin_venta.valueChanged.connect(
+                lambda v, row=i, origv=venta_orig:
+                    self._prec_on_venta_changed(row, v, origv))
+            self.prec_tabla.setCellWidget(i, 7, spin_venta)
+
+            # Col 8: Δ% venta
+            it_delta = QTableWidgetItem("—")
+            it_delta.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_delta.setForeground(QColor("#666"))
+            self.prec_tabla.setItem(i, 8, it_delta)
 
             self.prec_tabla.setRowHeight(i, 44)
-            self._prec_spins[pid] = (i, spin)
+            self._prec_spins[pid] = (i, spin_costo, spin_venta)
 
-    def _prec_actualizar_cambio(self, row: int, nuevo: float, original: float):
-        it = self.prec_tabla.item(row, 5)
-        if not it:
-            return
-        if original == 0 or abs(nuevo - original) < 0.01:
-            it.setText("—")
-            it.setForeground(QColor("#666"))
-        elif nuevo > original:
-            pct = (nuevo - original) / original * 100
-            it.setText(f"▲ +{pct:.1f}%")
-            it.setForeground(QColor("#4CAF50"))
-        else:
-            pct = (original - nuevo) / original * 100
-            it.setText(f"▼ -{pct:.1f}%")
-            it.setForeground(QColor("#F44336"))
+    def _prec_on_costo_changed(self, row: int, nuevo_costo: float,
+                                orig_costo: float, orig_venta: float, margen_orig: float):
+        """Cuando cambia el nuevo costo: auto-ajusta el precio de venta si el usuario no lo tocó."""
+        # Actualizar margen dinámico en col 5
+        spin_venta = self.prec_tabla.cellWidget(row, 7)
+        nuevo_venta = spin_venta.value() if spin_venta else orig_venta
+
+        if nuevo_costo > 0:
+            margen_actual = nuevo_venta / nuevo_costo - 1 if nuevo_costo > 0 else margen_orig
+            it_margen = self.prec_tabla.item(row, 5)
+            if it_margen:
+                it_margen.setText(f"{margen_actual * 100:+.1f}%")
+                it_margen.setForeground(QColor("#C9A84C"))
+
+        # Auto-ajustar precio de venta usando el margen original
+        if spin_venta and row not in self._prec_venta_manual:
+            self._prec_auto_filling = True
+            nuevo_precio_sugerido = round(nuevo_costo * (1 + margen_orig), 2)
+            spin_venta.setValue(nuevo_precio_sugerido)
+            self._prec_auto_filling = False
+
+    def _prec_on_venta_changed(self, row: int, nuevo_venta: float, orig_venta: float):
+        """Cuando cambia el precio de venta: actualiza Δ% y margen."""
+        if not self._prec_auto_filling:
+            self._prec_venta_manual.add(row)
+
+        # Δ% venta (col 8)
+        it_delta = self.prec_tabla.item(row, 8)
+        if it_delta:
+            if orig_venta == 0 or abs(nuevo_venta - orig_venta) < 0.01:
+                it_delta.setText("—")
+                it_delta.setForeground(QColor("#666"))
+            elif nuevo_venta > orig_venta:
+                pct = (nuevo_venta - orig_venta) / orig_venta * 100
+                it_delta.setText(f"▲ +{pct:.1f}%")
+                it_delta.setForeground(QColor("#4CAF50"))
+            else:
+                pct = (orig_venta - nuevo_venta) / orig_venta * 100
+                it_delta.setText(f"▼ -{pct:.1f}%")
+                it_delta.setForeground(QColor("#F44336"))
+
+        # Margen dinámico en col 5 (usa nuevo costo del spinbox col 4)
+        spin_costo = self.prec_tabla.cellWidget(row, 4)
+        if spin_costo:
+            nuevo_costo = spin_costo.value()
+            it_margen = self.prec_tabla.item(row, 5)
+            if it_margen:
+                if nuevo_costo > 0:
+                    m = nuevo_venta / nuevo_costo - 1
+                    it_margen.setText(f"{m * 100:+.1f}%")
+                    it_margen.setForeground(QColor("#C9A84C"))
+                else:
+                    it_margen.setText("—")
+                    it_margen.setForeground(QColor("#666"))
 
     def _prec_filtrar(self):
         texto  = self.prec_txt_filtro.text().lower()
@@ -1798,7 +1904,8 @@ class StockWidget(QWidget):
                     chk.setCheckState(estado)
 
     def _prec_aplicar_pct(self):
-        pct = self.prec_spin_pct.value()
+        pct   = self.prec_spin_pct.value()
+        campo = self.prec_cmb_pct_campo.currentData()   # "venta" o "costo"
         if pct == 0:
             return
         aplicados = 0
@@ -1807,35 +1914,50 @@ class StockWidget(QWidget):
                 continue
             chk = self.prec_tabla.item(row, 0)
             if chk and chk.checkState() == Qt.CheckState.Checked:
-                original = self.prec_tabla.item(row, 3).data(Qt.ItemDataRole.UserRole)
-                spin = self.prec_tabla.cellWidget(row, 4)
-                if spin:
-                    spin.setValue(round(original * (1 + pct / 100), 2))
-                    aplicados += 1
+                if campo == "costo":
+                    orig_costo = self.prec_tabla.item(row, 3).data(Qt.ItemDataRole.UserRole)
+                    spin_costo = self.prec_tabla.cellWidget(row, 4)
+                    if spin_costo:
+                        spin_costo.setValue(round(orig_costo * (1 + pct / 100), 2))
+                        aplicados += 1
+                else:
+                    orig_venta = self.prec_tabla.item(row, 6).data(Qt.ItemDataRole.UserRole)
+                    spin_venta = self.prec_tabla.cellWidget(row, 7)
+                    if spin_venta:
+                        self._prec_venta_manual.add(row)  # usuario pidió override explícito
+                        spin_venta.setValue(round(orig_venta * (1 + pct / 100), 2))
+                        aplicados += 1
         if aplicados == 0:
             QMessageBox.information(self, "Sin selección",
                 "Marcá al menos un producto (☑) antes de aplicar.")
 
     def _prec_confirmar(self):
         cambios = []
-        for pid, (row, spin) in self._prec_spins.items():
+        for pid, (row, spin_costo, spin_venta) in self._prec_spins.items():
             if self.prec_tabla.isRowHidden(row):
                 continue
-            nuevo    = spin.value()
-            original = self.prec_tabla.item(row, 3).data(Qt.ItemDataRole.UserRole)
-            if abs(nuevo - original) > 0.01:
+            nuevo_costo = spin_costo.value()
+            nuevo_venta = spin_venta.value()
+            orig_costo  = self.prec_tabla.item(row, 3).data(Qt.ItemDataRole.UserRole)
+            orig_venta  = self.prec_tabla.item(row, 6).data(Qt.ItemDataRole.UserRole)
+            if abs(nuevo_costo - orig_costo) > 0.01 or abs(nuevo_venta - orig_venta) > 0.01:
                 nombre = self.prec_tabla.item(row, 1).text()
-                cambios.append((pid, nombre, original, nuevo))
+                cambios.append((pid, nombre, orig_costo, nuevo_costo, orig_venta, nuevo_venta))
 
         if not cambios:
             QMessageBox.information(self, "Sin cambios",
-                "No hay precios modificados. Editá el 'Nuevo precio' de algún producto.")
+                "No hay precios modificados. Editá el 'Nuevo costo' o 'Nuevo precio' de algún producto.")
             return
 
-        resumen = "\n".join(
-            f"• {nombre}:  $ {orig:,.2f}  →  $ {nuevo:,.2f}"
-            for _, nombre, orig, nuevo in cambios[:12]
-        )
+        lineas = []
+        for _, nombre, oc, nc, ov, nv in cambios[:12]:
+            partes = []
+            if abs(nc - oc) > 0.01:
+                partes.append(f"costo $ {oc:,.0f} → $ {nc:,.0f}")
+            if abs(nv - ov) > 0.01:
+                partes.append(f"venta $ {ov:,.0f} → $ {nv:,.0f}")
+            lineas.append(f"• {nombre}:  {' | '.join(partes)}")
+        resumen = "\n".join(lineas)
         if len(cambios) > 12:
             resumen += f"\n… y {len(cambios) - 12} más"
 
@@ -1845,13 +1967,14 @@ class StockWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if resp == QMessageBox.StandardButton.Yes:
-            for pid, _, _, nuevo in cambios:
-                db.actualizar_producto(pid, {"precio_venta": nuevo})
+            for pid, _, _, nuevo_costo, _, nuevo_venta in cambios:
+                db.actualizar_producto(pid, {"precio_venta": nuevo_venta,
+                                             "precio_costo": nuevo_costo})
             self.cargar_productos()
             self._prec_cargar()
             QMessageBox.information(
                 self, "✅ Listo",
-                f"{len(cambios)} precio(s) actualizados correctamente.")
+                f"{len(cambios)} producto(s) actualizados correctamente.")
 
     def _aumentar_precio_masivo(self):
         dlg = QDialog(self)

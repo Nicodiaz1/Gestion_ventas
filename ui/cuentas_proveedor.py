@@ -469,7 +469,7 @@ class CuentasProveedorWidget(QWidget):
         hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Vencimiento
         hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)              # Acciones
         tabla.setColumnHidden(3, True)    # Descripción oculta
-        tabla.setColumnWidth(0, 28)       # Revisar
+        tabla.setColumnWidth(0, 36)       # Revisar
         tabla.setColumnWidth(8, 230)      # Acciones
         tabla.cellDoubleClicked.connect(
             lambda row, col, t=tabla: self._mostrar_descripcion(t, row, col))

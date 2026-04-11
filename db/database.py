@@ -819,6 +819,23 @@ def crear_proveedor(nombre: str, telefono: str = "", email: str = "", notas: str
         return cur.lastrowid
 
 
+def actualizar_proveedor(proveedor_id: int, datos: dict):
+    campos = {k: v for k, v in datos.items()
+              if k in ("nombre", "telefono", "email", "notas")}
+    if not campos:
+        return
+    sets = ", ".join(f"{k} = ?" for k in campos)
+    vals = list(campos.values()) + [proveedor_id]
+    with get_connection() as conn:
+        conn.execute(f"UPDATE proveedores SET {sets} WHERE id = ?", vals)
+
+
+def eliminar_proveedor(proveedor_id: int):
+    """Soft-delete: desactiva el proveedor sin borrar su historial de facturas."""
+    with get_connection() as conn:
+        conn.execute("UPDATE proveedores SET activo = 0 WHERE id = ?", (proveedor_id,))
+
+
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN
 # ══════════════════════════════════════════════════════════════
