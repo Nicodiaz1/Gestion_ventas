@@ -815,6 +815,17 @@ def obtener_categorias() -> list:
         return conn.execute("SELECT * FROM categorias ORDER BY nombre").fetchall()
 
 
+def eliminar_categoria(categoria_id: int) -> int:
+    """Elimina una categoria. Retorna la cantidad de productos que la usan (0 = eliminada OK)."""
+    with get_connection() as conn:
+        en_uso = conn.execute(
+            "SELECT COUNT(*) FROM productos WHERE categoria_id = ? AND activo = 1",
+            (categoria_id,)
+        ).fetchone()[0]
+        if en_uso == 0:
+            conn.execute("DELETE FROM categorias WHERE id = ?", (categoria_id,))
+        return en_uso
+
 def obtener_proveedores(solo_activos=True) -> list:
     with get_connection() as conn:
         q = "SELECT * FROM proveedores"

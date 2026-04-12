@@ -103,12 +103,15 @@ class ConfigPanel(QWidget):
         header_cats.addWidget(btn_nueva_cat)
         lay_cats.addLayout(header_cats)
 
-        self.tabla_cats = QTableWidget(0, 3)
-        self.tabla_cats.setHorizontalHeaderLabels(["ID", "Nombre", "Descripción"])
+        self.tabla_cats = QTableWidget(0, 4)
+        self.tabla_cats.setHorizontalHeaderLabels(["ID", "Nombre", "Descripción", "Acciones"])
         self.tabla_cats.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tabla_cats.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.tabla_cats.setColumnWidth(0, 50)
+        self.tabla_cats.setColumnWidth(3, 100)
         self.tabla_cats.setAlternatingRowColors(True)
         self.tabla_cats.verticalHeader().setVisible(False)
+        self.tabla_cats.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         lay_cats.addWidget(self.tabla_cats)
         self._cargar_categorias()
         tabs.addTab(tab_cats, "🏷️  Categorías")
@@ -272,9 +275,44 @@ class ConfigPanel(QWidget):
         cats = db.obtener_categorias()
         self.tabla_cats.setRowCount(len(cats))
         for i, c in enumerate(cats):
-            self.tabla_cats.setItem(i, 0, QTableWidgetItem(str(c["id"])))
+            cid = c["id"]
+            self.tabla_cats.setItem(i, 0, QTableWidgetItem(str(cid)))
             self.tabla_cats.setItem(i, 1, QTableWidgetItem(c["nombre"]))
             self.tabla_cats.setItem(i, 2, QTableWidgetItem(c["descripcion"] or ""))
+            btn_del = QPushButton("🗑 Borrar")
+            btn_del.setFixedHeight(26)
+            btn_del.setStyleSheet(
+                "QPushButton{background:#7F0000;color:white;border-radius:4px;"
+                "font-size:9pt;padding:0 6px;}"
+                "QPushButton:hover{background:#B71C1C;}"
+            )
+            btn_del.clicked.connect(
+                lambda _, cat=dict(c): self._eliminar_categoria(cat))
+            acc_w = QWidget()
+            acc_lay = QHBoxLayout(acc_w)
+            acc_lay.setContentsMargins(4, 2, 4, 2)
+            acc_lay.addWidget(btn_del)
+            self.tabla_cats.setCellWidget(i, 3, acc_w)
+            self.tabla_cats.setRowHeight(i, 34)
+
+    def _eliminar_categoria(self, cat: dict):
+        resp = QMessageBox.question(
+            self, "Eliminar categoría",
+            f"¿Eliminar la categoría \"{ cat['nombre'] }\"?\n\n"
+            "Si algún producto la usa no se podrá borrar.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        en_uso = db.eliminar_categoria(cat["id"])
+        if en_uso > 0:
+            QMessageBox.warning(
+                self, "Categoría en uso",
+                f"No se puede borrar: {en_uso} producto(s) usan esta categoría.\n"
+                "Reasignalos a otra categoría primero."
+            )
+        else:
+            self._cargar_categorias()
 
     def _nueva_categoria(self):
         from PyQt6.QtWidgets import QInputDialog
