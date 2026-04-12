@@ -871,19 +871,18 @@ class ReportesWidget(QWidget):
             cards_lay.addWidget(card)
         lay.addLayout(cards_lay)
 
-        # ── Segunda fila: inventario actual (no depende del período) ──
-        inv_header2 = QHBoxLayout()
-        sep1 = QFrame(); sep1.setFrameShape(QFrame.Shape.HLine); sep1.setStyleSheet("color:#333;")
-        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine); sep2.setStyleSheet("color:#333;")
-        lbl_sec = QLabel("Inventario actual")
-        lbl_sec.setStyleSheet("color:#888; font-size:9pt; font-style:italic; padding:0 8px;")
-        inv_header2.addWidget(sep1, 1)
-        inv_header2.addWidget(lbl_sec)
-        inv_header2.addWidget(sep2, 1)
-        lay.addLayout(inv_header2)
+        # ── Segunda fila: inventario (izq) + sueldos (der) ──────
+        second_row = QHBoxLayout()
+        second_row.setSpacing(20)
 
-        stock_cards_lay = QHBoxLayout()
-        stock_cards_lay.setSpacing(10)
+        # — Inventario —
+        inv_col = QVBoxLayout()
+        inv_col.setSpacing(4)
+        lbl_inv = QLabel("Inventario actual")
+        lbl_inv.setStyleSheet("color:#888; font-size:9pt; font-style:italic;")
+        inv_col.addWidget(lbl_inv)
+        inv_cards_lay = QHBoxLayout()
+        inv_cards_lay.setSpacing(10)
         for key, titulo, color in [
             ("stock_costo", "Stock al costo",          "#FF9800"),
             ("stock_venta", "Stock a precio de venta", "#26C6DA"),
@@ -892,36 +891,37 @@ class ReportesWidget(QWidget):
             card.setMaximumWidth(320)
             card.setMinimumWidth(200)
             self.fin_cards[key] = card
-            stock_cards_lay.addWidget(card)
-        stock_cards_lay.addStretch()
-        lay.addLayout(stock_cards_lay)
+            inv_cards_lay.addWidget(card)
+        inv_col.addLayout(inv_cards_lay)
+        second_row.addLayout(inv_col)
 
-        # ── Tercera fila: sueldos ─────────────────────────────
-        sueldo_header = QHBoxLayout()
-        sep_s1 = QFrame(); sep_s1.setFrameShape(QFrame.Shape.HLine); sep_s1.setStyleSheet("color:#333;")
-        sep_s2 = QFrame(); sep_s2.setFrameShape(QFrame.Shape.HLine); sep_s2.setStyleSheet("color:#333;")
+        # separador vertical
+        vsep = QFrame()
+        vsep.setFrameShape(QFrame.Shape.VLine)
+        vsep.setStyleSheet("color:#444;")
+        second_row.addWidget(vsep)
+
+        # — Sueldos —
+        sueldo_col = QVBoxLayout()
+        sueldo_col.setSpacing(4)
+        sueldo_hdr_row = QHBoxLayout()
         lbl_sueldo_sec = QLabel("Sueldos del período")
-        lbl_sueldo_sec.setStyleSheet("color:#888; font-size:9pt; font-style:italic; padding:0 8px;")
-        sueldo_header.addWidget(sep_s1, 1)
-        sueldo_header.addWidget(lbl_sueldo_sec)
-        sueldo_header.addWidget(sep_s2, 1)
-        lay.addLayout(sueldo_header)
-
-        sueldo_ctrl = QHBoxLayout()
-        self.fin_chk_descontar_gastos = QCheckBox("Descontar gastos operativos del sueldo")
+        lbl_sueldo_sec.setStyleSheet("color:#888; font-size:9pt; font-style:italic;")
+        sueldo_hdr_row.addWidget(lbl_sueldo_sec)
+        sueldo_hdr_row.addSpacing(16)
+        self.fin_chk_descontar_gastos = QCheckBox("Descontar gastos operativos")
         self.fin_chk_descontar_gastos.setChecked(False)
         self.fin_chk_descontar_gastos.setToolTip(
             "Activado: el sueldo se calcula sobre el margen neto (ya descontados los gastos).\n"
             "Desactivado: el sueldo se calcula sobre el margen bruto (sin descontar gastos).")
         self.fin_chk_descontar_gastos.stateChanged.connect(self._fin_actualizar_sueldos)
-        sueldo_ctrl.addWidget(self.fin_chk_descontar_gastos)
-        sueldo_ctrl.addStretch()
-        lay.addLayout(sueldo_ctrl)
-
+        sueldo_hdr_row.addWidget(self.fin_chk_descontar_gastos)
+        sueldo_hdr_row.addStretch()
+        sueldo_col.addLayout(sueldo_hdr_row)
         sueldo_cards_lay = QHBoxLayout()
         sueldo_cards_lay.setSpacing(10)
         for key, titulo, color in [
-            ("sueldo_total",      "Pozo a repartir",   "#AB47BC"),
+            ("sueldo_total",      "Pozo a repartir",    "#AB47BC"),
             ("sueldo_individual", "Sueldo por persona", "#EC407A"),
         ]:
             card = TarjetaMetrica(titulo, "—", "", color, key=key)
@@ -929,8 +929,11 @@ class ReportesWidget(QWidget):
             card.setMinimumWidth(200)
             self.fin_cards[key] = card
             sueldo_cards_lay.addWidget(card)
-        sueldo_cards_lay.addStretch()
-        lay.addLayout(sueldo_cards_lay)
+        sueldo_col.addLayout(sueldo_cards_lay)
+        second_row.addLayout(sueldo_col)
+
+        second_row.addStretch()
+        lay.addLayout(second_row)
         split = QHBoxLayout()
         split.setSpacing(12)
 
