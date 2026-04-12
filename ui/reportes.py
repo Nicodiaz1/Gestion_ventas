@@ -52,11 +52,67 @@ class GraficoCanvas(FigureCanvas if HAS_MATPLOTLIB else QWidget):
 # ─────────────────────────────────────────────────────────────
 
 class TarjetaMetrica(QFrame):
-    def __init__(self, titulo: str, valor: str, subtitulo: str = "", color: str = "#722F37"):
+    # Explicaciones por clave (titulo, icono, descrip, formula)
+    EXPLICACIONES = {
+        "ingresos": (
+            "Ingresos totales",
+            "💰",
+            "Es el dinero total que entró por todas las ventas del período. "
+            "Incluye todo lo cobrado: efectivo, débito, crédito, transferencia y QR.",
+            "Suma de todos los totales de ventas del período",
+        ),
+        "costo": (
+            "Costo de lo vendido",
+            "📦",
+            "Es cuanto te cost\u00f3 a vos lo que vendiste. Se calcula usando el precio de costo "
+            "cargado en cada producto. No incluye gastos fijos como alquiler o sueldos.",
+            "Suma de (precio costo \u00d7 cantidad) de cada producto vendido",
+        ),
+        "margen_bruto": (
+            "Margen bruto",
+            "📈",
+            "Es lo que te queda despu\u00e9s de restarle a los ingresos el costo de los productos. "
+            "Es una ganancia \u2018antes de gastos\u2019: todav\u00eda no descont\u00f3 alquiler, servicios, sueldos, etc.",
+            "Ingresos \u2212 Costo de lo vendido",
+        ),
+        "gastos": (
+            "Gastos operativos",
+            "💸",
+            "Son los gastos fijos o variables del negocio que registraste manualmente en este per\u00edodo: "
+            "alquiler, servicios, sueldos, transporte, etc. Se cargan desde el bot\u00f3n \u2018Registrar gasto\u2019.",
+            "Suma de todos los gastos registrados en el per\u00edodo",
+        ),
+        "margen_neto": (
+            "Margen neto",
+            "✨",
+            "Es la ganancia real del período: lo que te quedó en el bolsillo después de pagar productos "
+            "y todos los gastos del negocio. Si es negativo, el negocio tuvo pérdida en ese período.",
+            "Margen bruto − Gastos operativos",
+        ),
+        "stock_costo": (
+            "Stock al costo",
+            "📦",
+            "Es cuánto vale hoy todo el inventario que tenés en stock, calculado al precio que "
+            "pagaste por cada producto. Te dice cuánta plata tenés inmovilizada en mercadería.",
+            "Suma de (precio_costo × stock_actual) de todos los productos activos con stock > 0",
+        ),
+        "stock_venta": (
+            "Stock a precio de venta",
+            "🏷️",
+            "Es cuánto podrías facturar si vendieras todo el stock que tenés hoy, "
+            "al precio de venta actual. Sirve para estimar el potencial de ingresos del inventario.",
+            "Suma de (precio_venta × stock_actual) de todos los productos activos con stock > 0",
+        ),
+    }
+
+    def __init__(self, titulo: str, valor: str, subtitulo: str = "", color: str = "#722F37", key: str = ""):
         super().__init__()
         self.setObjectName("card_widget")
         self.setMinimumSize(160, 100)
         self.setMaximumHeight(130)
+        self._key = key
+        self._raw_valor = valor
+        self.titulo_color = color
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 12, 16, 12)
@@ -72,18 +128,89 @@ class TarjetaMetrica(QFrame):
         lbl_sub = QLabel(subtitulo)
         lbl_sub.setObjectName("card_subtitulo")
 
+        # Hint doble click
+        lbl_hint = QLabel("doble clic para explicación")
+        lbl_hint.setStyleSheet("color:#555; font-size:7pt; font-style:italic;")
+
         lay.addWidget(lbl_tit)
         lay.addWidget(lbl_val)
         lay.addWidget(lbl_sub)
+        lay.addWidget(lbl_hint)
         lay.addStretch()
 
         self.lbl_val = lbl_val
         self.lbl_sub = lbl_sub
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Doble clic para ver qué significa esta métrica")
 
     def actualizar(self, valor: str, subtitulo: str = ""):
+        self._raw_valor = valor
         self.lbl_val.setText(valor)
         if subtitulo:
             self.lbl_sub.setText(subtitulo)
+
+    def mouseDoubleClickEvent(self, event):
+        info = self.EXPLICACIONES.get(self._key)
+        if not info:
+            return
+        titulo, icono, descrip, formula = info
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton
+        dlg = QDialog(self.window())
+        dlg.setWindowTitle(f"{icono}  {titulo}")
+        dlg.setMinimumWidth(420)
+        dlg_lay = QVBoxLayout(dlg)
+        dlg_lay.setSpacing(12)
+        dlg_lay.setContentsMargins(24, 20, 24, 20)
+
+        lbl_icon = QLabel(f"{icono}")
+        lbl_icon.setStyleSheet("font-size:36pt;")
+        lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dlg_lay.addWidget(lbl_icon)
+
+        lbl_tit = QLabel(titulo)
+        lbl_tit.setStyleSheet("font-size:15pt; font-weight:800; color:#C9A84C;")
+        lbl_tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dlg_lay.addWidget(lbl_tit)
+
+        lbl_val = QLabel(self._raw_valor)
+        lbl_val.setStyleSheet(
+            f"font-size:26pt; font-weight:900; color:{self.titulo_color}; "
+            "background:#1A1A1A; border-radius:8px; padding:10px 0;")
+        lbl_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dlg_lay.addWidget(lbl_val)
+
+        from PyQt6.QtWidgets import QFrame
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color:#333;")
+        dlg_lay.addWidget(sep)
+
+        lbl_que = QLabel("¿Qué es?")
+        lbl_que.setStyleSheet("font-weight:700; color:#AAAAAA; font-size:10pt;")
+        dlg_lay.addWidget(lbl_que)
+
+        lbl_desc = QLabel(descrip)
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("color:#E0E0E0; font-size:10pt; line-height:150%;")
+        dlg_lay.addWidget(lbl_desc)
+
+        lbl_como = QLabel("¿Cómo se calcula?")
+        lbl_como.setStyleSheet("font-weight:700; color:#AAAAAA; font-size:10pt; margin-top:6px;")
+        dlg_lay.addWidget(lbl_como)
+
+        lbl_form = QLabel(formula)
+        lbl_form.setStyleSheet(
+            "color:#C9A84C; font-size:10pt; font-style:italic; "
+            "background:#1A1A1A; border-radius:6px; padding:6px 12px;")
+        lbl_form.setWordWrap(True)
+        dlg_lay.addWidget(lbl_form)
+
+        btn_ok = QPushButton("Entendido")
+        btn_ok.clicked.connect(dlg.accept)
+        btn_ok.setFixedWidth(120)
+        dlg_lay.addWidget(btn_ok, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        dlg.exec()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -723,10 +850,35 @@ class ReportesWidget(QWidget):
             ("gastos",       "Gastos operativos",   "#EF5350"),
             ("margen_neto",  "Margen neto",          "#2196F3"),
         ]:
-            card = TarjetaMetrica(titulo, "—", "", color)
+            card = TarjetaMetrica(titulo, "—", "", color, key=key)
             self.fin_cards[key] = card
             cards_lay.addWidget(card)
         lay.addLayout(cards_lay)
+
+        # ── Segunda fila: inventario actual (no depende del período) ──
+        inv_header2 = QHBoxLayout()
+        sep1 = QFrame(); sep1.setFrameShape(QFrame.Shape.HLine); sep1.setStyleSheet("color:#333;")
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine); sep2.setStyleSheet("color:#333;")
+        lbl_sec = QLabel("Inventario actual")
+        lbl_sec.setStyleSheet("color:#888; font-size:9pt; font-style:italic; padding:0 8px;")
+        inv_header2.addWidget(sep1, 1)
+        inv_header2.addWidget(lbl_sec)
+        inv_header2.addWidget(sep2, 1)
+        lay.addLayout(inv_header2)
+
+        stock_cards_lay = QHBoxLayout()
+        stock_cards_lay.setSpacing(10)
+        for key, titulo, color in [
+            ("stock_costo", "Stock al costo",          "#FF9800"),
+            ("stock_venta", "Stock a precio de venta", "#26C6DA"),
+        ]:
+            card = TarjetaMetrica(titulo, "—", "", color, key=key)
+            card.setMaximumWidth(320)
+            card.setMinimumWidth(200)
+            self.fin_cards[key] = card
+            stock_cards_lay.addWidget(card)
+        stock_cards_lay.addStretch()
+        lay.addLayout(stock_cards_lay)
 
         # ── Panel inferior: ingresos por medio + gastos ──────
         split = QHBoxLayout()
@@ -803,6 +955,11 @@ class ReportesWidget(QWidget):
         self.fin_cards["margen_neto"].titulo_color = color_mn
         self.fin_cards["margen_neto"].actualizar(
             fmt(res["margen_neto"]) + f"  ({res['pct_margen_neto']:.1f}%)")
+
+        # Tarjetas de inventario (siempre actuales, no dependen del período)
+        inv = db.valor_stock_inventario()
+        self.fin_cards["stock_costo"].actualizar(fmt(inv["al_costo"]))
+        self.fin_cards["stock_venta"].actualizar(fmt(inv["al_venta"]))
 
         # Tabla medios
         mp = res["por_medio"]

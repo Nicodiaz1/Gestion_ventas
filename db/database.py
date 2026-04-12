@@ -1200,6 +1200,19 @@ def obtener_gastos_periodo(desde: str, hasta: str) -> list:
         """, (desde, hasta)).fetchall()
 
 
+def valor_stock_inventario() -> dict:
+    """Devuelve el valor total del stock activo al costo y al precio de venta."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT
+                COALESCE(SUM(stock_actual * COALESCE(precio_costo, 0)), 0)  AS al_costo,
+                COALESCE(SUM(stock_actual * COALESCE(precio_venta, 0)), 0)  AS al_venta
+            FROM productos
+            WHERE activo = 1 AND stock_actual > 0
+        """).fetchone()
+        return {"al_costo": row["al_costo"], "al_venta": row["al_venta"]}
+
+
 def resumen_finanzas_periodo(desde: str, hasta: str) -> dict:
     """Devuelve ingresos por medio de pago, costo estimado, gastos y margen del período."""
     with get_connection() as conn:
