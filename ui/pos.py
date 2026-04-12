@@ -8,9 +8,9 @@ from PyQt6.QtWidgets import (
     QMessageBox, QDialog, QGridLayout, QScrollArea, QFrame,
     QButtonGroup, QSpinBox, QDoubleSpinBox, QAbstractItemView,
     QListWidget, QListWidgetItem, QSplitter, QSizePolicy,
-    QTabWidget, QTabBar, QInputDialog, QStackedWidget
+    QTabWidget, QTabBar, QInputDialog, QStackedWidget, QCompleter
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QStringListModel
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QColor, QDoubleValidator
 import sys, os
 
@@ -25,11 +25,12 @@ from db import database as db
 class BuscadorProductos(QDialog):
     producto_seleccionado = pyqtSignal(dict)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, texto_inicial: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Buscar Producto")
         self.setMinimumSize(560, 440)
         self.setModal(True)
+        self._texto_inicial = texto_inicial
         self._build_ui()
 
     def _build_ui(self):
@@ -62,7 +63,10 @@ class BuscadorProductos(QDialog):
         btn_row.addWidget(btn_cancel)
         lay.addLayout(btn_row)
 
-        self._buscar("")
+        if self._texto_inicial:
+            self.txt_buscar.setText(self._texto_inicial)
+        else:
+            self._buscar("")
 
     def _buscar(self, texto: str):
         self.lista.clear()
@@ -138,7 +142,10 @@ class CarritoWidget(QWidget):
         self.carrito: list[ItemCarrito] = []
         self.medio_pago_actual  = "efectivo"
         self._ajustando_total   = False
+        self._completando       = False          # flag: usuario eligió sugerencia
+        self._sugerencias_cache: dict[str, dict] = {}
         self._build_ui()
+        self._setup_completer()
         QTimer.singleShot(100, self.scan_input.setFocus)
 
     def _build_ui(self):
@@ -160,7 +167,7 @@ class CarritoWidget(QWidget):
         self.scan_input = QLineEdit()
         self.scan_input.setObjectName("scan_input")
         self.scan_input.setPlaceholderText(
-            "📷  Escaneá o escribí el código y presioná Enter…")
+            "📷  Escanear código  |  o escribí el nombre del producto…")
         self.scan_input.returnPressed.connect(self._procesar_escaneo)
         scan_row.addWidget(self.scan_input, 1)
 
@@ -364,19 +371,76 @@ class CarritoWidget(QWidget):
 
     # ── Escaneo ───────────────────────────────────────────────
 
+    def _setup_completer(self):
+        """QCompleter con búsqueda por substring sobre nombres de productos."""
+        self._completer_model = QStringListModel()
+        completer = QCompleter(self._completer_model, self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        # MatchContains = buscar en cualquier parte del nombre
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setMaxVisibleItems(10)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.scan_input.setCompleter(completer)
+        self.scan_input.textChanged.connect(self._actualizar_sugerencias)
+        completer.activated.connect(self._sugerencia_elegida)
+        self._completer = completer
+
+    def _actualizar_sugerencias(self, texto: str):
+        """Actualiza el modelo del completer solo cuando hay letras."""
+        texto = texto.strip()
+        # Si es todo numérico (barcode) no mostramos sugerencias de nombre
+        if not texto or texto.isdigit() or len(texto) < 2:
+            self._completer_model.setStringList([])
+            return
+        resultados = db.buscar_por_nombre(texto)
+        self._sugerencias_cache = {
+            p["nombre"]: dict(p) for p in resultados
+        }
+        etiquetas = [
+            f"{p['nombre']}  |  ${p['precio_venta']:.2f}  |  Stock: {p['stock_actual']}"
+            for p in resultados
+        ]
+        self._completer_model.setStringList(etiquetas)
+
+    def _sugerencia_elegida(self, texto: str):
+        """El usuario eligió una sugerencia del dropdown."""
+        nombre = texto.split("  |  ")[0].strip()
+        producto = self._sugerencias_cache.get(nombre)
+        if producto:
+            self._completando = True
+            self._agregar_al_carrito(producto)
+            self.scan_input.clear()
+            QTimer.singleShot(0, lambda: setattr(self, "_completando", False))
+
     def _procesar_escaneo(self):
+        if self._completando:
+            return
         codigo = self.scan_input.text().strip()
         if not codigo:
             return
         self.scan_input.clear()
+        # 1) Intentar código de barras
         producto = db.buscar_por_codigo(codigo)
         if producto:
             self._agregar_al_carrito(dict(producto))
-        else:
-            QMessageBox.warning(
-                self, "Código no encontrado",
-                f"No se encontró: {codigo}\n"
-                "Buscalo por nombre con 🔍 Buscar (F2)")
+            return
+        # 2) Si hay exactamente 1 coincidencia por nombre, agregar directo
+        if not codigo.isdigit():
+            resultados = db.buscar_por_nombre(codigo)
+            if len(resultados) == 1:
+                self._agregar_al_carrito(dict(resultados[0]))
+                return
+            if len(resultados) > 1:
+                # Hay varias coincidencias: abrir el buscador con el texto prefiltrado
+                dlg = BuscadorProductos(self, texto_inicial=codigo)
+                dlg.producto_seleccionado.connect(self._agregar_al_carrito)
+                dlg.exec()
+                QTimer.singleShot(100, self.scan_input.setFocus)
+                return
+        QMessageBox.warning(
+            self, "Código no encontrado",
+            f"No se encontró: {codigo}\n"
+            "Escribí el nombre para ver sugerencias.")
 
     def _abrir_buscador(self):
         dlg = BuscadorProductos(self)
