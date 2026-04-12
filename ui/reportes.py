@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QTabWidget, QDateEdit, QMessageBox, QSizePolicy, QFrame,
     QScrollArea, QGridLayout, QAbstractItemView, QDialog,
-    QSpinBox, QDoubleSpinBox, QLineEdit, QDialogButtonBox, QFormLayout
+    QSpinBox, QDoubleSpinBox, QLineEdit, QDialogButtonBox, QFormLayout,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt, QDate, QTimer
 from PyQt6.QtGui import QColor, QFont
@@ -102,6 +103,21 @@ class TarjetaMetrica(QFrame):
             "Es cuánto podrías facturar si vendieras todo el stock que tenés hoy, "
             "al precio de venta actual. Sirve para estimar el potencial de ingresos del inventario.",
             "Suma de (precio_venta × stock_actual) de todos los productos activos con stock > 0",
+        ),
+        "sueldo_total": (
+            "Pozo a repartir",
+            "💵",
+            "Es el monto total disponible para repartir entre las personas que trabajan en el negocio. "
+            "Si el checkbox 'Descontar gastos' está activo, se descuentan los gastos operativos primero. "
+            "Si no está activo, se toma directo el margen bruto (ganancia antes de gastos).",
+            "Con gastos: Margen neto  |  Sin gastos: Margen bruto",
+        ),
+        "sueldo_individual": (
+            "Sueldo por persona",
+            "👥",
+            "Es lo que le corresponde a cada una de las 2 personas que trabajan, "
+            "dividiendo el pozo a repartir en partes iguales.",
+            "Pozo a repartir ÷ 2 personas",
         ),
     }
 
@@ -880,7 +896,41 @@ class ReportesWidget(QWidget):
         stock_cards_lay.addStretch()
         lay.addLayout(stock_cards_lay)
 
-        # ── Panel inferior: ingresos por medio + gastos ──────
+        # ── Tercera fila: sueldos ─────────────────────────────
+        sueldo_header = QHBoxLayout()
+        sep_s1 = QFrame(); sep_s1.setFrameShape(QFrame.Shape.HLine); sep_s1.setStyleSheet("color:#333;")
+        sep_s2 = QFrame(); sep_s2.setFrameShape(QFrame.Shape.HLine); sep_s2.setStyleSheet("color:#333;")
+        lbl_sueldo_sec = QLabel("Sueldos del período")
+        lbl_sueldo_sec.setStyleSheet("color:#888; font-size:9pt; font-style:italic; padding:0 8px;")
+        sueldo_header.addWidget(sep_s1, 1)
+        sueldo_header.addWidget(lbl_sueldo_sec)
+        sueldo_header.addWidget(sep_s2, 1)
+        lay.addLayout(sueldo_header)
+
+        sueldo_ctrl = QHBoxLayout()
+        self.fin_chk_descontar_gastos = QCheckBox("Descontar gastos operativos del sueldo")
+        self.fin_chk_descontar_gastos.setChecked(False)
+        self.fin_chk_descontar_gastos.setToolTip(
+            "Activado: el sueldo se calcula sobre el margen neto (ya descontados los gastos).\n"
+            "Desactivado: el sueldo se calcula sobre el margen bruto (sin descontar gastos).")
+        self.fin_chk_descontar_gastos.stateChanged.connect(self._fin_actualizar_sueldos)
+        sueldo_ctrl.addWidget(self.fin_chk_descontar_gastos)
+        sueldo_ctrl.addStretch()
+        lay.addLayout(sueldo_ctrl)
+
+        sueldo_cards_lay = QHBoxLayout()
+        sueldo_cards_lay.setSpacing(10)
+        for key, titulo, color in [
+            ("sueldo_total",      "Pozo a repartir",   "#AB47BC"),
+            ("sueldo_individual", "Sueldo por persona", "#EC407A"),
+        ]:
+            card = TarjetaMetrica(titulo, "—", "", color, key=key)
+            card.setMaximumWidth(320)
+            card.setMinimumWidth(200)
+            self.fin_cards[key] = card
+            sueldo_cards_lay.addWidget(card)
+        sueldo_cards_lay.addStretch()
+        lay.addLayout(sueldo_cards_lay)
         split = QHBoxLayout()
         split.setSpacing(12)
 
@@ -961,6 +1011,11 @@ class ReportesWidget(QWidget):
         self.fin_cards["stock_costo"].actualizar(fmt(inv["al_costo"]))
         self.fin_cards["stock_venta"].actualizar(fmt(inv["al_venta"]))
 
+        # Guardar valores para recalcular sueldos al cambiar el checkbox
+        self._fin_margen_bruto = res["margen_bruto"]
+        self._fin_margen_neto  = res["margen_neto"]
+        self._fin_actualizar_sueldos()
+
         # Tabla medios
         mp = res["por_medio"]
         for i, key in enumerate(["efectivo","debito","credito","transferencia","qr"]):
@@ -987,6 +1042,21 @@ class ReportesWidget(QWidget):
             btn_del.clicked.connect(lambda _, gid=gid: self._fin_eliminar_gasto(gid))
             self.fin_tabla_gastos.setCellWidget(i, 4, btn_del)
             self.fin_tabla_gastos.setRowHeight(i, 36)
+
+    def _fin_actualizar_sueldos(self):
+        """Recalcula tarjetas de sueldo según el checkbox de gastos operativos."""
+        base = getattr(self, "_fin_margen_neto", 0) \
+            if self.fin_chk_descontar_gastos.isChecked() \
+            else getattr(self, "_fin_margen_bruto", 0)
+        individual = base / 2
+        color_t = "#AB47BC" if base >= 0 else "#EF5350"
+        color_i = "#EC407A" if individual >= 0 else "#EF5350"
+        self.fin_cards["sueldo_total"].titulo_color = color_t
+        self.fin_cards["sueldo_total"].actualizar(f"${base:,.2f}")
+        self.fin_cards["sueldo_individual"].titulo_color = color_i
+        tipo = "(c/gastos)" if self.fin_chk_descontar_gastos.isChecked() else "(s/gastos)"
+        self.fin_cards["sueldo_individual"].actualizar(
+            f"${individual:,.2f}", subtitulo=tipo)
 
     def _fin_agregar_gasto(self):
         dlg = QDialog(self)
