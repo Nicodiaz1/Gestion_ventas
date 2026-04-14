@@ -162,9 +162,13 @@ class DialogoFactura(QDialog):
         btn_row.addStretch()
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.setObjectName("btn_secundario")
+        btn_cancel.setAutoDefault(False)
+        btn_cancel.setDefault(False)
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
         self.btn_ok = QPushButton("💾  Guardar")
+        self.btn_ok.setAutoDefault(False)
+        self.btn_ok.setDefault(False)
         self.btn_ok.clicked.connect(self._guardar)
         btn_row.addWidget(self.btn_ok)
         lay.addLayout(btn_row)
@@ -184,9 +188,13 @@ class DialogoFactura(QDialog):
         return super().eventFilter(obj, event)
 
     def _proveedor_enter(self):
-        """Autocompleta al primer match por prefijo y avanza al campo N° factura."""
+        """Autocompleta al primer match por prefijo y avanza al campo N° factura.
+        Si el popup del completer estaba visible, el Enter fue para seleccionar —
+        en ese caso igual avanzamos al siguiente campo."""
         texto = self.txt_proveedor.text().strip().lower()
-        if texto:
+        if texto and not any(
+                nombre.lower() == texto for nombre in self._proveedor_map):
+            # Todavía no hay match exacto → completar con el primero
             for nombre in self._proveedor_map:
                 if nombre.lower().startswith(texto):
                     self.txt_proveedor.setText(nombre)
