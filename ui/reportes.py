@@ -293,7 +293,7 @@ class ReportesWidget(QWidget):
         # Tarjetas de métricas — fila única, tamaño compacto para que entren las 8
         self.cards_hoy = {}
         cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(6)
+        cards_layout.setSpacing(4)
         for key, titulo, val, color in [
             ("total_dia",    "Total del día",    "$0", "#C9A84C"),
             ("ventas_dia",   "Ventas realizadas","0",  "#4CAF50"),
@@ -305,11 +305,20 @@ class ReportesWidget(QWidget):
             ("qr",           "🔲 QR",             "$0", "#00695C"),
         ]:
             card = TarjetaMetrica(titulo, val, "", color)
-            # Compactar: ancho mínimo reducido, número más chico
+            # Compactar: padding reducido, borde fino, sin radius exagerado
             card.setMinimumWidth(80)
-            card.setMaximumHeight(110)
+            card.setMaximumHeight(90)
+            card.setStyleSheet(
+                "#card_widget {"
+                "  background:#2C2C2C;"
+                "  border:1px solid #3C3C3C;"
+                "  border-radius:6px;"
+                "  padding:4px 8px;"
+                "}")
+            card.layout().setContentsMargins(8, 6, 8, 6)
+            card.layout().setSpacing(2)
             card.lbl_val.setStyleSheet(
-                f"color: {color}; font-size: 13pt; font-weight: 800;")
+                f"color:{color}; font-size:13pt; font-weight:800;")
             self.cards_hoy[key] = card
             cards_layout.addWidget(card)
         lay.addLayout(cards_layout)
