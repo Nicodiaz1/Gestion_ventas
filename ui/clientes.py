@@ -218,8 +218,6 @@ class DialogoDetalleCliente(QDialog):
         btn_cerrar.clicked.connect(self.accept)
         lay.addWidget(btn_cerrar, alignment=Qt.AlignmentFlag.AlignRight)
 
-        self._stats_row = stats_row
-
     def _card(self, titulo: str, valor: str, color: str) -> QLabel:
         card = QFrame()
         card.setObjectName("card_widget")
@@ -235,6 +233,8 @@ class DialogoDetalleCliente(QDialog):
         cl.addWidget(lbl_v)
         self._stats_row.addWidget(card)
         return lbl_v
+
+    def _cargar(self):
         saldo = db.saldo_cliente(self._cliente["id"])
         stats = db.estadisticas_cliente(self._cliente["id"])
         movimientos = db.obtener_movimientos_cliente(self._cliente["id"])

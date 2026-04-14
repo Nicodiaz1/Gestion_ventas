@@ -10,8 +10,22 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
+# En macOS, cuando se corre como script desde un venv, Qt no encuentra el plugin
+# cocoa automáticamente. Lo seteamos antes de importar QtWidgets.
+# En Windows este bloque no hace nada (la carpeta no existe).
+if sys.platform == "darwin":
+    try:
+        import PyQt6 as _pyqt6
+        _plugins = os.path.join(
+            os.path.dirname(_pyqt6.__file__), "Qt6", "plugins", "platforms"
+        )
+        if os.path.isdir(_plugins):
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = _plugins
+    except Exception:
+        pass
+
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QLabel, QComboBox
-from PyQt6.QtCore import Qt, QTimer, QEvent
+from PyQt6.QtCore import Qt, QTimer, QEvent, QLocale
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QPainterPath
 
 
@@ -41,6 +55,8 @@ from config import GITHUB_USUARIO, GITHUB_REPO, CHEQUEAR_UPDATES, BASE_DIR
 
 def main():
     app = QApplication(sys.argv)
+    # Forzar locale C globalmente: punto del teclado numérico = decimal en todos los spinboxes
+    QLocale.setDefault(QLocale(QLocale.Language.C))
     _patch_combo_popup()
     app.setApplicationName("Vinoteca")
     app.setOrganizationName("Vinoteca")
