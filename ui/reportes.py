@@ -829,10 +829,20 @@ class ReportesWidget(QWidget):
     # ── Sub-tab: MÉTRICAS ─────────────────────────────────────
 
     def _build_fin_tab_metricas(self):
+        outer = QWidget()
+        outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer_lay.addWidget(scroll)
+
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setSpacing(8)
         lay.setContentsMargins(16, 16, 16, 16)
+        scroll.setWidget(w)
 
         CARD_H = 155
 
@@ -945,7 +955,7 @@ class ReportesWidget(QWidget):
         sueldo_row.addStretch()
         lay.addLayout(sueldo_row)
         lay.addStretch()
-        return w
+        return outer
 
     # ── Sub-tab: DETALLE ──────────────────────────────────────
 
