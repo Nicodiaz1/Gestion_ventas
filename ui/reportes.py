@@ -819,10 +819,21 @@ class ReportesWidget(QWidget):
     # ── Tab: FINANZAS / KPIs ──────────────────────────────────
 
     def _build_tab_finanzas(self):
-        w = QWidget()
-        lay = QVBoxLayout(w)
-        lay.setSpacing(12)
-        lay.setContentsMargins(12, 12, 12, 12)
+        # Outer container → QScrollArea so all content is scrollable
+        outer = QWidget()
+        outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer_lay.addWidget(scroll)
+
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.setSpacing(18)
+        lay.setContentsMargins(16, 16, 16, 24)
+        scroll.setWidget(inner)
 
         # ── Selector de período ───────────────────────────────
         ctrl = QHBoxLayout()
@@ -855,21 +866,33 @@ class ReportesWidget(QWidget):
         ctrl.addWidget(btn_gasto)
         lay.addLayout(ctrl)
 
-        # ── Tarjetas KPI ──────────────────────────────────────
+        # ── Sección: Resultados del período ──────────────────
+        lbl_sec_res = QLabel("Resultados del período")
+        lbl_sec_res.setStyleSheet(
+            "color:#888; font-size:9pt; font-weight:600; font-style:italic;")
+        lay.addWidget(lbl_sec_res)
+
         self.fin_cards = {}
-        cards_lay = QHBoxLayout()
-        cards_lay.setSpacing(10)
-        for key, titulo, color in [
-            ("ingresos",     "Ingresos totales",    "#C9A84C"),
-            ("costo",        "Costo de lo vendido", "#888888"),
-            ("margen_bruto", "Margen bruto",         "#4CAF50"),
-            ("gastos",       "Gastos operativos",   "#EF5350"),
-            ("margen_neto",  "Margen neto",          "#2196F3"),
+        kpi_grid = QGridLayout()
+        kpi_grid.setSpacing(12)
+        kpi_grid.setColumnStretch(0, 1)
+        kpi_grid.setColumnStretch(1, 1)
+        kpi_grid.setColumnStretch(2, 1)
+
+        for row, col, key, titulo, color in [
+            (0, 0, "ingresos",     "Ingresos totales",    "#C9A84C"),
+            (0, 1, "costo",        "Costo de lo vendido", "#888888"),
+            (0, 2, "margen_bruto", "Margen bruto",         "#4CAF50"),
+            (1, 0, "gastos",       "Gastos operativos",   "#EF5350"),
+            (1, 1, "margen_neto",  "Margen neto",          "#2196F3"),
         ]:
             card = TarjetaMetrica(titulo, "—", "", color, key=key)
+            card.setMinimumWidth(220)
+            card.setMinimumHeight(130)
+            card.setMaximumHeight(16777215)
             self.fin_cards[key] = card
-            cards_lay.addWidget(card)
-        lay.addLayout(cards_lay)
+            kpi_grid.addWidget(card, row, col)
+        lay.addLayout(kpi_grid)
 
         # ── Segunda fila: inventario (izq) + sueldos (der) ──────
         second_row = QHBoxLayout()
@@ -877,23 +900,25 @@ class ReportesWidget(QWidget):
 
         # — Inventario —
         inv_col = QVBoxLayout()
-        inv_col.setSpacing(4)
+        inv_col.setSpacing(8)
         lbl_inv = QLabel("Inventario actual")
-        lbl_inv.setStyleSheet("color:#888; font-size:9pt; font-style:italic;")
+        lbl_inv.setStyleSheet(
+            "color:#888; font-size:9pt; font-weight:600; font-style:italic;")
         inv_col.addWidget(lbl_inv)
         inv_cards_lay = QHBoxLayout()
-        inv_cards_lay.setSpacing(10)
+        inv_cards_lay.setSpacing(12)
         for key, titulo, color in [
             ("stock_costo", "Stock al costo",          "#FF9800"),
             ("stock_venta", "Stock a precio de venta", "#26C6DA"),
         ]:
             card = TarjetaMetrica(titulo, "—", "", color, key=key)
-            card.setMaximumWidth(320)
-            card.setMinimumWidth(200)
+            card.setMinimumWidth(220)
+            card.setMinimumHeight(130)
+            card.setMaximumHeight(16777215)
             self.fin_cards[key] = card
             inv_cards_lay.addWidget(card)
         inv_col.addLayout(inv_cards_lay)
-        second_row.addLayout(inv_col)
+        second_row.addLayout(inv_col, 1)
 
         # separador vertical
         vsep = QFrame()
@@ -903,10 +928,11 @@ class ReportesWidget(QWidget):
 
         # — Sueldos —
         sueldo_col = QVBoxLayout()
-        sueldo_col.setSpacing(4)
+        sueldo_col.setSpacing(8)
         sueldo_hdr_row = QHBoxLayout()
         lbl_sueldo_sec = QLabel("Sueldos del período")
-        lbl_sueldo_sec.setStyleSheet("color:#888; font-size:9pt; font-style:italic;")
+        lbl_sueldo_sec.setStyleSheet(
+            "color:#888; font-size:9pt; font-weight:600; font-style:italic;")
         sueldo_hdr_row.addWidget(lbl_sueldo_sec)
         sueldo_hdr_row.addSpacing(16)
         self.fin_chk_descontar_gastos = QCheckBox("Descontar gastos operativos")
@@ -919,26 +945,35 @@ class ReportesWidget(QWidget):
         sueldo_hdr_row.addStretch()
         sueldo_col.addLayout(sueldo_hdr_row)
         sueldo_cards_lay = QHBoxLayout()
-        sueldo_cards_lay.setSpacing(10)
+        sueldo_cards_lay.setSpacing(12)
         for key, titulo, color in [
             ("sueldo_total",      "Pozo a repartir",    "#AB47BC"),
             ("sueldo_individual", "Sueldo por persona", "#EC407A"),
         ]:
             card = TarjetaMetrica(titulo, "—", "", color, key=key)
-            card.setMaximumWidth(320)
-            card.setMinimumWidth(200)
+            card.setMinimumWidth(220)
+            card.setMinimumHeight(130)
+            card.setMaximumHeight(16777215)
             self.fin_cards[key] = card
             sueldo_cards_lay.addWidget(card)
         sueldo_col.addLayout(sueldo_cards_lay)
-        second_row.addLayout(sueldo_col)
+        second_row.addLayout(sueldo_col, 1)
 
-        second_row.addStretch()
         lay.addLayout(second_row)
+
+        # ── Separador ─────────────────────────────────────────
+        hsep = QFrame()
+        hsep.setFrameShape(QFrame.Shape.HLine)
+        hsep.setStyleSheet("color:#333;")
+        lay.addWidget(hsep)
+
+        # ── Tablas: medios de pago + gastos ──────────────────
         split = QHBoxLayout()
-        split.setSpacing(12)
+        split.setSpacing(16)
 
         # Izquierda: ingresos por medio de pago
         izq = QVBoxLayout()
+        izq.setSpacing(6)
         lbl_mp = QLabel("Ingresos por medio de pago")
         lbl_mp.setStyleSheet("font-weight:700; font-size:11pt; color:#C9A84C;")
         izq.addWidget(lbl_mp)
@@ -949,16 +984,15 @@ class ReportesWidget(QWidget):
         self.fin_tabla_mp.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.fin_tabla_mp.verticalHeader().setVisible(False)
         self.fin_tabla_mp.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.fin_tabla_mp.setMaximumHeight(200)
         for i, mp in enumerate(["💵 Efectivo","💳 Débito","🏦 Crédito","📲 Transferencia","🔲 QR"]):
             self.fin_tabla_mp.setItem(i, 0, QTableWidgetItem(mp))
             self.fin_tabla_mp.setItem(i, 1, QTableWidgetItem("$0"))
         izq.addWidget(self.fin_tabla_mp)
-        izq.addStretch()
         split.addLayout(izq, 1)
 
         # Derecha: tabla de gastos
         der = QVBoxLayout()
+        der.setSpacing(6)
         lbl_g = QLabel("Gastos del período")
         lbl_g.setStyleSheet("font-weight:700; font-size:11pt; color:#EF5350;")
         der.addWidget(lbl_g)
@@ -977,10 +1011,11 @@ class ReportesWidget(QWidget):
         split.addLayout(der, 2)
 
         lay.addLayout(split, 1)
+        lay.addStretch()
 
         # Carga inicial
         self._fin_cargar()
-        return w
+        return outer
 
     def _fin_rango(self):
         """Devuelve (desde, hasta) en formato ISO según el selector."""
