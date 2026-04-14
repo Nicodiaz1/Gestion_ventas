@@ -474,9 +474,20 @@ class CarritoWidget(QWidget):
         self._completer = completer
 
     def _actualizar_sugerencias(self, texto: str):
-        """Actualiza el modelo del completer solo cuando hay letras."""
+        """Actualiza el modelo del completer solo cuando hay letras.
+        Si el texto es puramente numérico y coincide con un código de barras,
+        agrega el producto al instante sin necesidad de Enter."""
         texto = texto.strip()
-        # Si es todo numérico (barcode) no mostramos sugerencias de nombre
+        # Si es todo numérico: buscar coincidencia exacta de código de barras
+        if texto.isdigit() and len(texto) >= 3:
+            producto = db.buscar_por_codigo(texto)
+            if producto:
+                self._completando = True
+                self._agregar_al_carrito(dict(producto))
+                self.scan_input.clear()
+                QTimer.singleShot(0, lambda: setattr(self, "_completando", False))
+                return
+        # Si es numérico sin coincidencia, o muy corto: no mostrar sugerencias de nombre
         if not texto or texto.isdigit() or len(texto) < 2:
             self._completer_model.setStringList([])
             return
