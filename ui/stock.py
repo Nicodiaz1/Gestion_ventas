@@ -1728,7 +1728,7 @@ class StockWidget(QWidget):
         # ── Filtros ──────────────────────────────────────────
         filtro_row = QHBoxLayout()
         self.prec_txt_filtro = QLineEdit()
-        self.prec_txt_filtro.setPlaceholderText("🔍  Buscar producto por nombre…")
+        self.prec_txt_filtro.setPlaceholderText("🔍  Buscar por nombre o código de barras…")
         self.prec_txt_filtro.textChanged.connect(self._prec_filtrar)
         filtro_row.addWidget(self.prec_txt_filtro, 1)
 
@@ -2012,7 +2012,9 @@ class StockWidget(QWidget):
             p   = next((x for x in self.todos_productos if x["id"] == pid), None)
             if not p:
                 continue
-            match_texto = not texto or texto in p["nombre"].lower()
+            match_texto = (not texto or
+                          texto in p["nombre"].lower() or
+                          texto in (p.get("codigo_barras") or "").lower())
             match_cat   = cat_id is None or p.get("categoria_id") == cat_id
             self.prec_tabla.setRowHidden(row, not (match_texto and match_cat))
 
