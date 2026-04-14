@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS ventas (
     anulada         INTEGER DEFAULT 0,
     motivo_anulacion TEXT,
     sincronizada    INTEGER DEFAULT 0,
+    cliente_id      INTEGER REFERENCES clientes(id),
     creado_en       DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -200,6 +201,30 @@ CREATE TABLE IF NOT EXISTS lotes (
 );
 CREATE INDEX IF NOT EXISTS idx_lotes_producto    ON lotes(producto_id);
 CREATE INDEX IF NOT EXISTS idx_lotes_vencimiento ON lotes(fecha_vencimiento);
+
+-- ── Clientes ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS clientes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre      TEXT NOT NULL,
+    apellido    TEXT,
+    telefono    TEXT,
+    edad        INTEGER,
+    notas       TEXT,
+    creado_en   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+
+-- ── Cuenta corriente / Fiado ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS movimientos_fiado (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id  INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    tipo        TEXT NOT NULL,   -- 'cargo' | 'abono'
+    monto       REAL NOT NULL,   -- siempre positivo
+    descripcion TEXT,
+    venta_id    INTEGER REFERENCES ventas(id),
+    fecha       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_fiado_cliente ON movimientos_fiado(cliente_id);
 """
 
 
@@ -293,6 +318,41 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha);
             """)
             print("[DB] Migración: tabla gastos creada.")
+        # Migración: tabla clientes
+        if "clientes" not in tablas:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS clientes (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre    TEXT NOT NULL,
+                    apellido  TEXT,
+                    telefono  TEXT,
+                    edad      INTEGER,
+                    notas     TEXT,
+                    creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+            """)
+            print("[DB] Migración: tabla clientes creada.")
+        # Migración: tabla movimientos_fiado
+        if "movimientos_fiado" not in tablas:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS movimientos_fiado (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cliente_id  INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+                    tipo        TEXT NOT NULL,
+                    monto       REAL NOT NULL,
+                    descripcion TEXT,
+                    venta_id    INTEGER REFERENCES ventas(id),
+                    fecha       DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_fiado_cliente ON movimientos_fiado(cliente_id);
+            """)
+            print("[DB] Migración: tabla movimientos_fiado creada.")
+        # Migración: columna cliente_id en ventas
+        cols_ventas2 = [r[1] for r in conn.execute("PRAGMA table_info(ventas)").fetchall()]
+        if "cliente_id" not in cols_ventas2:
+            conn.execute("ALTER TABLE ventas ADD COLUMN cliente_id INTEGER REFERENCES clientes(id)")
+            print("[DB] Migración: columna cliente_id agregada a ventas.")
     print(f"[DB] Base de datos inicializada en: {DB_PATH}")
 
 
@@ -504,7 +564,8 @@ def actualizar_movimiento_historial(movimiento_id: int, motivo: str):
 def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
                     cuotas: int = 1, notas: str = "",
                     recargo_pct: float = 0,
-                    pagos: list = None) -> int:
+                    pagos: list = None,
+                    cliente_id: int = None) -> int:
     """
     items: [{"producto_id": int, "cantidad": int, "precio_unit": float}, ...]
     recargo_pct: porcentaje de recargo (+) o descuento (-). Ej: 15 = +15%, -10 = -10%
@@ -529,11 +590,11 @@ def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
     with get_connection() as conn:
         cur = conn.execute("""
             INSERT INTO ventas (fecha, hora, datetime_venta, subtotal, descuento, total,
-                                medio_pago, cuotas, notas, pagos_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                medio_pago, cuotas, notas, pagos_json, cliente_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (ahora.date().isoformat(), ahora.strftime("%H:%M:%S"),
               ahora.isoformat(), subtotal, descuento, total,
-              medio_pago, cuotas, notas, pagos_json))
+              medio_pago, cuotas, notas, pagos_json, cliente_id))
         venta_id = cur.lastrowid
 
         for item in items:
@@ -1267,3 +1328,134 @@ def resumen_finanzas_periodo(desde: str, hasta: str) -> dict:
                 "qr":            r["qr"],
             }
         }
+
+
+# ══════════════════════════════════════════════════════════════
+#  CLIENTES
+# ══════════════════════════════════════════════════════════════
+
+def obtener_clientes(busqueda: str = "") -> list:
+    with get_connection() as conn:
+        if busqueda:
+            like = f"%{busqueda}%"
+            return conn.execute(
+                """SELECT * FROM clientes
+                   WHERE nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ?
+                   ORDER BY nombre, apellido""",
+                (like, like, like)
+            ).fetchall()
+        return conn.execute(
+            "SELECT * FROM clientes ORDER BY nombre, apellido"
+        ).fetchall()
+
+
+def obtener_cliente(cliente_id: int) -> Optional[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM clientes WHERE id = ?", (cliente_id,)
+        ).fetchone()
+
+
+def crear_cliente(datos: dict) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO clientes (nombre, apellido, telefono, edad, notas)
+               VALUES (?, ?, ?, ?, ?)""",
+            (datos.get("nombre", "").strip(),
+             datos.get("apellido", "").strip() or None,
+             datos.get("telefono", "").strip() or None,
+             datos.get("edad") or None,
+             datos.get("notas", "").strip() or None)
+        )
+        return cur.lastrowid
+
+
+def actualizar_cliente(cliente_id: int, datos: dict):
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE clientes SET nombre=?, apellido=?, telefono=?, edad=?, notas=?
+               WHERE id=?""",
+            (datos.get("nombre", "").strip(),
+             datos.get("apellido", "").strip() or None,
+             datos.get("telefono", "").strip() or None,
+             datos.get("edad") or None,
+             datos.get("notas", "").strip() or None,
+             cliente_id)
+        )
+
+
+def eliminar_cliente(cliente_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM clientes WHERE id = ?", (cliente_id,))
+
+
+# ══════════════════════════════════════════════════════════════
+#  CUENTA CORRIENTE / FIADO
+# ══════════════════════════════════════════════════════════════
+
+def saldo_cliente(cliente_id: int) -> float:
+    """Retorna la deuda actual (positivo = debe, negativo = saldo a favor)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT
+                COALESCE(SUM(CASE WHEN tipo='cargo' THEN monto ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN tipo='abono' THEN monto ELSE 0 END), 0) AS saldo
+               FROM movimientos_fiado WHERE cliente_id = ?""",
+            (cliente_id,)
+        ).fetchone()
+        return round(row["saldo"] if row else 0.0, 2)
+
+
+def obtener_movimientos_cliente(cliente_id: int) -> list:
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT m.*, v.fecha as fecha_venta
+               FROM movimientos_fiado m
+               LEFT JOIN ventas v ON v.id = m.venta_id
+               WHERE m.cliente_id = ?
+               ORDER BY m.fecha DESC""",
+            (cliente_id,)
+        ).fetchall()
+
+
+def registrar_movimiento_fiado(cliente_id: int, tipo: str, monto: float,
+                                descripcion: str = "", venta_id: int = None):
+    """tipo: 'cargo' (debe) | 'abono' (paga)."""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO movimientos_fiado (cliente_id, tipo, monto, descripcion, venta_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (cliente_id, tipo, round(abs(monto), 2), descripcion, venta_id)
+        )
+
+
+def estadisticas_cliente(cliente_id: int) -> dict:
+    with get_connection() as conn:
+        r = conn.execute(
+            """SELECT
+                COUNT(*)   AS total_visitas,
+                COALESCE(SUM(total), 0) AS total_comprado,
+                COALESCE(AVG(total), 0) AS ticket_promedio,
+                MAX(fecha) AS ultima_visita
+               FROM ventas WHERE cliente_id = ? AND anulada = 0""",
+            (cliente_id,)
+        ).fetchone()
+        return dict(r) if r else {
+            "total_visitas": 0, "total_comprado": 0,
+            "ticket_promedio": 0, "ultima_visita": None
+        }
+
+
+def clientes_con_deuda() -> list:
+    """Todos los clientes que tienen saldo pendiente > 0."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT c.*,
+                COALESCE(SUM(CASE WHEN m.tipo='cargo' THEN m.monto ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN m.tipo='abono' THEN m.monto ELSE 0 END), 0) AS saldo
+               FROM clientes c
+               LEFT JOIN movimientos_fiado m ON m.cliente_id = c.id
+               GROUP BY c.id
+               HAVING saldo > 0.005
+               ORDER BY saldo DESC"""
+        ).fetchall()

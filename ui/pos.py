@@ -134,6 +134,7 @@ class CarritoWidget(QWidget):
         ("🏦 Crédito",       "credito",       "mp_credito"),
         ("📲 Transferencia", "transferencia", "mp_transferencia"),
         ("🔲 QR",            "qr",            "mp_qr"),
+        ("🤝 Fiado",         "fiado",         "mp_fiado"),
     ]
 
     def __init__(self, nombre_cliente: str = "Cliente 1", parent=None):
@@ -142,8 +143,11 @@ class CarritoWidget(QWidget):
         self.carrito: list[ItemCarrito] = []
         self.medio_pago_actual  = "efectivo"
         self._ajustando_total   = False
-        self._completando       = False          # flag: usuario eligió sugerencia
+        self._completando       = False
         self._sugerencias_cache: dict[str, dict] = {}
+        self._cliente_id: int | None = None
+        self._cliente_saldo: float   = 0.0
+        self._cliente_nombre: str    = ""
         self._build_ui()
         self._setup_completer()
         QTimer.singleShot(100, self.scan_input.setFocus)
@@ -177,6 +181,22 @@ class CarritoWidget(QWidget):
         btn_buscar.setMinimumWidth(110)
         scan_row.addWidget(btn_buscar)
         lay_izq.addLayout(scan_row)
+
+        # ── Fila de cliente asignado ──────────────────────────
+        cliente_row = QHBoxLayout()
+        self.lbl_cliente = QLabel("👤  Sin cliente asignado")
+        self.lbl_cliente.setStyleSheet("color:#555; font-size:9pt; padding:2px 0;")
+        cliente_row.addWidget(self.lbl_cliente, 1)
+        self.btn_asignar_cliente = QPushButton("+ Asignar")
+        self.btn_asignar_cliente.setFixedHeight(24)
+        self.btn_asignar_cliente.setFixedWidth(90)
+        self.btn_asignar_cliente.setStyleSheet(
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+            "color:#C9A84C;font-size:8pt;}"
+            "QPushButton:hover{background:#3C3C3C;}")
+        self.btn_asignar_cliente.clicked.connect(self._asignar_cliente)
+        cliente_row.addWidget(self.btn_asignar_cliente)
+        lay_izq.addLayout(cliente_row)
 
         lbl_hint = QLabel("F2 buscar por nombre  |  F12 cobrar  |  Esc vaciar carrito")
         lbl_hint.setStyleSheet("color: #666; font-size: 9pt;")
@@ -368,6 +388,50 @@ class CarritoWidget(QWidget):
         root.addWidget(splitter)
 
         self._cargar_ultimas_ventas()
+
+    # ── Cliente asignado ──────────────────────────────────────
+
+    def _asignar_cliente(self):
+        from ui.clientes import BuscadorClientes
+        dlg = BuscadorClientes(self)
+        dlg.cliente_seleccionado.connect(self._on_cliente_seleccionado)
+        dlg.exec()
+
+    def _on_cliente_seleccionado(self, cliente: dict):
+        self._cliente_id     = cliente["id"]
+        self._cliente_saldo  = db.saldo_cliente(cliente["id"])
+        nombre_completo = f"{cliente['nombre']} {cliente.get('apellido') or ''}".strip()
+        self._cliente_nombre = nombre_completo
+        saldo_txt = (f"  —  💳 Debe: ${self._cliente_saldo:,.2f}"
+                     if self._cliente_saldo > 0.01 else "  ✅ Sin deuda")
+        color = "#FF9800" if self._cliente_saldo > 0.01 else "#4CAF50"
+        self.lbl_cliente.setText(f"👤  {nombre_completo}{saldo_txt}")
+        self.lbl_cliente.setStyleSheet(f"color:{color}; font-size:9pt; padding:2px 0;")
+        self.btn_asignar_cliente.setText("✕ Quitar")
+        self.btn_asignar_cliente.setStyleSheet(
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+            "color:#F44336;font-size:8pt;}"
+            "QPushButton:hover{background:#3C3C3C;}")
+        self.btn_asignar_cliente.clicked.disconnect()
+        self.btn_asignar_cliente.clicked.connect(self._quitar_cliente)
+
+    def _quitar_cliente(self):
+        self._cliente_id    = None
+        self._cliente_saldo = 0.0
+        self._cliente_nombre = ""
+        self.lbl_cliente.setText("👤  Sin cliente asignado")
+        self.lbl_cliente.setStyleSheet("color:#555; font-size:9pt; padding:2px 0;")
+        self.btn_asignar_cliente.setText("+ Asignar")
+        self.btn_asignar_cliente.setStyleSheet(
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+            "color:#C9A84C;font-size:8pt;}"
+            "QPushButton:hover{background:#3C3C3C;}")
+        self.btn_asignar_cliente.clicked.disconnect()
+        self.btn_asignar_cliente.clicked.connect(self._asignar_cliente)
+        # Limpiar campo fiado
+        if "fiado" in self._montos:
+            self._montos["fiado"].setText("0")
+        self._actualizar_pendiente()
 
     # ── Escaneo ───────────────────────────────────────────────
 
@@ -697,6 +761,14 @@ class CarritoWidget(QWidget):
     def _toggle_metodo(self, txt: QLineEdit, valor: str, checked: bool = True):
         """Al clickear un botón de método: si se deselecciona limpia el campo;
         si se selecciona completa con el monto restante si el campo estaba en 0."""
+        # Fiado requiere cliente asignado
+        if valor == "fiado" and checked and not self._cliente_id:
+            QMessageBox.warning(
+                self, "Sin cliente",
+                "Para usar Fiado primero asigná un cliente con el botón '+ Asignar'.")
+            txt.setText("0")
+            self._actualizar_pendiente()
+            return
         if not checked:
             txt.setText("0")
             self._actualizar_pendiente()
@@ -762,7 +834,17 @@ class CarritoWidget(QWidget):
 
     def _actualizar_pendiente(self):
         total = self._total_actual()
-        asignado = sum(p["monto"] for p in self._get_pagos())
+        # Fiado sin cliente → ignorar ese monto
+        asignado = 0.0
+        for metodo, txt in self._montos.items():
+            try:
+                monto = float(txt.text().replace(",", "."))
+            except (ValueError, AttributeError):
+                monto = 0.0
+            if metodo == "fiado" and not self._cliente_id:
+                monto = 0.0
+            if monto > 0.005:
+                asignado += monto
         pendiente = total - asignado
         # Actualizar estado de botones de método
         for metodo, txt in self._montos.items():
@@ -770,7 +852,6 @@ class CarritoWidget(QWidget):
                 monto = float(txt.text().replace(",", "."))
             except (ValueError, AttributeError):
                 monto = 0.0
-            # Resaltar campos con monto > 0
             txt.setStyleSheet(
                 "QLineEdit{background:#1A2A1A;border:1px solid #2E7D32;"
                 "border-radius:5px;padding:4px 8px;font-size:11pt;color:#81C784;}"
@@ -795,10 +876,20 @@ class CarritoWidget(QWidget):
                 "color:#FF9800; font-size:10pt; font-weight:700; padding:2px 0;")
             self.btn_cobrar.setEnabled(False)
         else:
-            self.lbl_pendiente.setText(f"Exceso: ${-pendiente:,.2f}")
-            self.lbl_pendiente.setStyleSheet(
-                "color:#EF5350; font-size:10pt; font-weight:700; padding:2px 0;")
-            self.btn_cobrar.setEnabled(False)
+            # Exceso: si hay cliente, el exceso cancela deuda → OK
+            exceso = -pendiente
+            if self._cliente_id and self._cliente_saldo > 0.01:
+                cancela = min(exceso, self._cliente_saldo)
+                self.lbl_pendiente.setText(
+                    f"↘ Cancela deuda: ${cancela:,.2f}")
+                self.lbl_pendiente.setStyleSheet(
+                    "color:#4CAF50; font-size:10pt; font-weight:700; padding:2px 0;")
+                self.btn_cobrar.setEnabled(True)
+            else:
+                self.lbl_pendiente.setText(f"Exceso: ${exceso:,.2f}")
+                self.lbl_pendiente.setStyleSheet(
+                    "color:#EF5350; font-size:10pt; font-weight:700; padding:2px 0;")
+                self.btn_cobrar.setEnabled(False)
 
     # ── Confirmar venta ───────────────────────────────────────
 
@@ -841,7 +932,9 @@ class CarritoWidget(QWidget):
             porcentaje=porcentaje,
             total=total, medio_pago=medio_display,
             nombre_cliente=self.nombre_cliente,
-            pagos=pagos)
+            pagos=pagos,
+            cliente_nombre=self._cliente_nombre,
+            cliente_saldo=self._cliente_saldo)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             items_db = [
                 {"producto_id": i.producto_id,
@@ -851,10 +944,45 @@ class CarritoWidget(QWidget):
                 for i in self.carrito
             ]
             try:
+                # Calcular lo que va a fiado (si aplica)
+                monto_fiado = 0.0
+                monto_excess = 0.0
+                if self._cliente_id:
+                    pagos_sin_fiado = [p for p in pagos if p["metodo"] != "fiado"]
+                    pagado_real = sum(p["monto"] for p in pagos_sin_fiado)
+                    fiado_explicito = next(
+                        (p["monto"] for p in pagos if p["metodo"] == "fiado"), 0.0)
+                    monto_fiado = fiado_explicito
+                    # Exceso por encima del total → cancela deuda
+                    exceso = round(pagado_real - total, 2)
+                    if exceso > 0.01 and self._cliente_saldo > 0.01:
+                        monto_excess = min(exceso, self._cliente_saldo)
+                    # Ajustar pagos enviados a DB (excluir "fiado" como método)
+                    pagos_db = pagos_sin_fiado if pagos_sin_fiado else None
+                    medio_db = (pagos_db[0]["metodo"] if pagos_db and len(pagos_db) == 1
+                                else ("mixto" if pagos_db and len(pagos_db) > 1
+                                      else "fiado"))
+                else:
+                    pagos_db = pagos
+                    medio_db = medio_display
+
                 venta_id = db.registrar_venta(
-                    items_db, medio_display,
+                    items_db, medio_db,
                     descuento=0, recargo_pct=porcentaje,
-                    pagos=pagos)
+                    pagos=pagos_db,
+                    cliente_id=self._cliente_id)
+
+                # Registrar movimientos de fiado
+                if self._cliente_id:
+                    if monto_fiado > 0.01:
+                        db.registrar_movimiento_fiado(
+                            self._cliente_id, "cargo", monto_fiado,
+                            f"Venta fiada #{venta_id}", venta_id)
+                    if monto_excess > 0.01:
+                        db.registrar_movimiento_fiado(
+                            self._cliente_id, "abono", monto_excess,
+                            f"Abono en venta #{venta_id}", venta_id)
+
                 self.carrito.clear()
                 self.spin_porcentaje.setValue(0)
                 self.spin_total_final.setValue(0)
@@ -864,10 +992,25 @@ class CarritoWidget(QWidget):
                 self._cargar_ultimas_ventas()
                 self.venta_realizada.emit(venta_id)
                 self.scan_input.setFocus()
-                QMessageBox.information(
-                    self, "✅  Venta registrada",
-                    f"Venta #{venta_id} registrada.\n"
-                    f"Total cobrado: ${total:,.2f}")
+
+                msg = f"Venta #{venta_id} registrada.\nTotal cobrado: ${total:,.2f}"
+                if self._cliente_id and monto_fiado > 0.01:
+                    nuevo_saldo = db.saldo_cliente(self._cliente_id)
+                    msg += f"\n💳 Fiado: ${monto_fiado:,.2f}  |  Deuda total: ${nuevo_saldo:,.2f}"
+                if self._cliente_id and monto_excess > 0.01:
+                    msg += f"\n✅ Abonó ${monto_excess:,.2f} de deuda anterior."
+
+                # Actualizar saldo en la fila del cliente
+                if self._cliente_id:
+                    self._cliente_saldo = db.saldo_cliente(self._cliente_id)
+                    saldo_txt = (f"  —  💳 Debe: ${self._cliente_saldo:,.2f}"
+                                 if self._cliente_saldo > 0.01 else "  ✅ Sin deuda")
+                    color = "#FF9800" if self._cliente_saldo > 0.01 else "#4CAF50"
+                    self.lbl_cliente.setText(f"👤  {self._cliente_nombre}{saldo_txt}")
+                    self.lbl_cliente.setStyleSheet(
+                        f"color:{color}; font-size:9pt; padding:2px 0;")
+
+                QMessageBox.information(self, "✅  Venta registrada", msg)
             except Exception as e:
                 QMessageBox.critical(self, "Error al registrar", str(e))
 
@@ -1204,18 +1347,31 @@ class PosWidget(QWidget):
 
 class ConfirmacionVenta(QDialog):
     def __init__(self, parent, carrito, subtotal, descuento, total, medio_pago,
-                 nombre_cliente="", porcentaje=0, pagos=None):
+                 nombre_cliente="", porcentaje=0, pagos=None,
+                 cliente_nombre="", cliente_saldo=0.0):
         super().__init__(parent)
         titulo = f"Confirmar Venta — {nombre_cliente}" if nombre_cliente else "Confirmar Venta"
         self.setWindowTitle(titulo)
         self.setMinimumWidth(420)
         self.setModal(True)
-        self._build(carrito, subtotal, descuento, total, medio_pago, porcentaje, pagos)
+        self._build(carrito, subtotal, descuento, total, medio_pago, porcentaje,
+                    pagos, cliente_nombre, cliente_saldo)
 
-    def _build(self, carrito, subtotal, descuento, total, medio_pago, porcentaje=0, pagos=None):
+    def _build(self, carrito, subtotal, descuento, total, medio_pago,
+               porcentaje=0, pagos=None, cliente_nombre="", cliente_saldo=0.0):
         lay = QVBoxLayout(self)
         lay.setSpacing(10)
         lay.setContentsMargins(24, 20, 24, 20)
+
+        # Cliente asignado (si hay)
+        if cliente_nombre:
+            lbl_cli = QLabel(f"👤  {cliente_nombre}")
+            lbl_cli.setStyleSheet("font-size:11pt; font-weight:700; color:#C9A84C;")
+            lay.addWidget(lbl_cli)
+            if cliente_saldo > 0.01:
+                lbl_deuda = QLabel(f"💳  Deuda previa: ${cliente_saldo:,.2f}")
+                lbl_deuda.setStyleSheet("color:#FF9800; font-size:10pt;")
+                lay.addWidget(lbl_deuda)
 
         lbl = QLabel("Resumen de la venta")
         lbl.setObjectName("titulo_seccion")
@@ -1244,7 +1400,7 @@ class ConfirmacionVenta(QDialog):
         # Desglose de pagos
         mp_labels = {"efectivo": "💵 Efectivo", "debito": "💳 Débito",
                      "credito": "🏦 Crédito", "transferencia": "📲 Transferencia",
-                     "qr": "🔲 QR", "mixto": "🔀 Pago mixto"}
+                     "qr": "🔲 QR", "mixto": "🔀 Pago mixto", "fiado": "🤝 Fiado"}
         if pagos and len(pagos) > 1:
             lbl_mp = QLabel("🔀  Pago mixto:")
             lbl_mp.setStyleSheet("font-weight:700; color:#C9A84C; font-size:12pt;")
