@@ -305,17 +305,17 @@ class ReportesWidget(QWidget):
             ("qr",           "🔲 QR",             "$0", "#00695C"),
         ]:
             card = TarjetaMetrica(titulo, val, "", color)
-            # Compactar: padding reducido, borde fino, sin radius exagerado
+            # Eliminar el stretch interno → el fondo ya no queda vacío abajo
+            card.layout().takeAt(card.layout().count() - 1)
             card.setMinimumWidth(80)
-            card.setMaximumHeight(90)
+            card.setFixedHeight(64)
             card.setStyleSheet(
                 "#card_widget {"
                 "  background:#2C2C2C;"
                 "  border:1px solid #3C3C3C;"
                 "  border-radius:6px;"
-                "  padding:4px 8px;"
                 "}")
-            card.layout().setContentsMargins(8, 6, 8, 6)
+            card.layout().setContentsMargins(8, 5, 8, 5)
             card.layout().setSpacing(2)
             card.lbl_val.setStyleSheet(
                 f"color:{color}; font-size:13pt; font-weight:800;")
