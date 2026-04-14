@@ -1338,22 +1338,25 @@ def obtener_clientes(busqueda: str = "") -> list:
     with get_connection() as conn:
         if busqueda:
             like = f"%{busqueda}%"
-            return conn.execute(
+            rows = conn.execute(
                 """SELECT * FROM clientes
                    WHERE nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ?
                    ORDER BY nombre, apellido""",
                 (like, like, like)
             ).fetchall()
-        return conn.execute(
-            "SELECT * FROM clientes ORDER BY nombre, apellido"
-        ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM clientes ORDER BY nombre, apellido"
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
-def obtener_cliente(cliente_id: int) -> Optional[sqlite3.Row]:
+def obtener_cliente(cliente_id: int) -> Optional[dict]:
     with get_connection() as conn:
-        return conn.execute(
+        row = conn.execute(
             "SELECT * FROM clientes WHERE id = ?", (cliente_id,)
         ).fetchone()
+        return dict(row) if row else None
 
 
 def crear_cliente(datos: dict) -> int:
@@ -1408,7 +1411,7 @@ def saldo_cliente(cliente_id: int) -> float:
 
 def obtener_movimientos_cliente(cliente_id: int) -> list:
     with get_connection() as conn:
-        return conn.execute(
+        rows = conn.execute(
             """SELECT m.*, v.fecha as fecha_venta
                FROM movimientos_fiado m
                LEFT JOIN ventas v ON v.id = m.venta_id
@@ -1416,6 +1419,7 @@ def obtener_movimientos_cliente(cliente_id: int) -> list:
                ORDER BY m.fecha DESC""",
             (cliente_id,)
         ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def registrar_movimiento_fiado(cliente_id: int, tipo: str, monto: float,
@@ -1449,7 +1453,7 @@ def estadisticas_cliente(cliente_id: int) -> dict:
 def clientes_con_deuda() -> list:
     """Todos los clientes que tienen saldo pendiente > 0."""
     with get_connection() as conn:
-        return conn.execute(
+        rows = conn.execute(
             """SELECT c.*,
                 COALESCE(SUM(CASE WHEN m.tipo='cargo' THEN m.monto ELSE 0 END), 0) -
                 COALESCE(SUM(CASE WHEN m.tipo='abono' THEN m.monto ELSE 0 END), 0) AS saldo
@@ -1459,3 +1463,4 @@ def clientes_con_deuda() -> list:
                HAVING saldo > 0.005
                ORDER BY saldo DESC"""
         ).fetchall()
+        return [dict(r) for r in rows]
