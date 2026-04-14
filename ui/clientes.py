@@ -162,6 +162,7 @@ class DialogoDetalleCliente(QDialog):
 
         # Tarjetas de estadísticas
         stats_row = QHBoxLayout()
+        self._stats_row = stats_row   # debe asignarse ANTES de llamar a _card()
         self.lbl_saldo     = self._card("DEUDA ACTUAL",    "$ 0",  "#FF9800")
         self.lbl_visitas   = self._card("VISITAS",         "0",    "#C9A84C")
         self.lbl_comprado  = self._card("TOTAL COMPRADO",  "$ 0",  "#4CAF50")
@@ -234,8 +235,6 @@ class DialogoDetalleCliente(QDialog):
         cl.addWidget(lbl_v)
         self._stats_row.addWidget(card)
         return lbl_v
-
-    def _cargar(self):
         saldo = db.saldo_cliente(self._cliente["id"])
         stats = db.estadisticas_cliente(self._cliente["id"])
         movimientos = db.obtener_movimientos_cliente(self._cliente["id"])
@@ -558,7 +557,13 @@ class ClientesWidget(QWidget):
             self.cargar()
 
     def _doble_click(self, item):
-        cliente_id = item.data(Qt.ItemDataRole.UserRole)
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(data, dict):
+            cliente_id = data.get("id")
+        elif isinstance(data, int):
+            cliente_id = data
+        else:
+            return
         if cliente_id:
             self._abrir_detalle(cliente_id)
 

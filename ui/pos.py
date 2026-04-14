@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QSplitter, QSizePolicy,
     QTabWidget, QTabBar, QInputDialog, QStackedWidget, QCompleter
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QStringListModel
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QStringListModel, QLocale
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QColor, QDoubleValidator
 import sys, os
 
@@ -90,18 +90,29 @@ class BuscadorProductos(QDialog):
 # ─────────────────────────────────────────────────────────────
 
 def _safe_float(text: str) -> float:
-    """Parsea un número respetando el locale del sistema.
-    Maneja separadores de miles (ej: '10.000' = 10000 en locale Argentina)."""
+    """Parsea un número aceptando tanto punto como coma como separador decimal.
+    Punto del teclado numérico = decimal. Coma de thousands se descarta."""
     try:
-        from PyQt6.QtCore import QLocale
         t = (text or "").strip()
         if not t:
             return 0.0
-        val, ok = QLocale.system().toDouble(t)
-        if ok:
-            return val
-        # Fallback: solo coma decimal → punto
-        return float(t.replace(",", "."))
+        # Si tiene coma Y punto: el último es el decimal
+        if "," in t and "." in t:
+            if t.rfind(",") > t.rfind("."):
+                # "10.000,50"  → 10000.50
+                t = t.replace(".", "").replace(",", ".")
+            else:
+                # "10,000.50"  → 10000.50
+                t = t.replace(",", "")
+        elif "," in t:
+            # Solo coma: decimal si hay 1-2 dígitos despues, miles si hay 3
+            parts = t.split(",")
+            if len(parts) == 2 and len(parts[1]) == 3 and parts[0].replace(".", "").isdigit() and parts[1].isdigit():
+                t = t.replace(",", "")  # separador de miles
+            else:
+                t = t.replace(",", ".")  # separador decimal
+        # Solo punto: Python float lo toma siempre como decimal
+        return float(t)
     except (ValueError, AttributeError):
         return 0.0
 
@@ -300,8 +311,10 @@ class CarritoWidget(QWidget):
         # Cada fila: [botón método]  [campo monto]
         # Un campo distinto por medio de pago, sumable (pago mixto)
         self._montos: dict[str, QLineEdit] = {}
+        _locale_c = QLocale(QLocale.Language.C)   # punto = decimal siempre
         validator = QDoubleValidator(0, 99999999, 2)
         validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        validator.setLocale(_locale_c)
 
         for texto, valor, obj_name in self.MEDIOS_PAGO:
             fila = QHBoxLayout()
