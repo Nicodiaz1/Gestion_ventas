@@ -88,6 +88,9 @@ class ExportWorker(QThread):
             elif self.tipo == "proveedores":
                 self._export_proveedores(wb, _estilo_encabezado, _estilo_total,
                                          _auto_ancho, _freeze, COLOR_FILA_PAR)
+            elif self.tipo == "clientes":
+                self._export_clientes(wb, _estilo_encabezado, _estilo_total,
+                                      _auto_ancho, _freeze, COLOR_FILA_PAR)
             elif self.tipo == "completo":
                 self._export_ventas_resumen(wb, _estilo_encabezado, _estilo_total,
                                             _auto_ancho, _freeze, COLOR_FILA_PAR)
@@ -97,6 +100,8 @@ class ExportWorker(QThread):
                                    _auto_ancho, _freeze, COLOR_FILA_PAR)
                 self._export_proveedores(wb, _estilo_encabezado, _estilo_total,
                                          _auto_ancho, _freeze, COLOR_FILA_PAR)
+                self._export_clientes(wb, _estilo_encabezado, _estilo_total,
+                                      _auto_ancho, _freeze, COLOR_FILA_PAR)
 
             wb.save(self.ruta)
             self.terminado.emit(True, self.ruta)
@@ -317,6 +322,88 @@ class ExportWorker(QThread):
 
         ancho(ws)
 
+    # ── Hoja: Clientes y fiado ────────────────────────────────
+
+    def _export_clientes(self, wb, enc, tot, ancho, freeze, fila_par):
+        from openpyxl.styles import PatternFill, Alignment, Font
+        ws = wb.create_sheet("Clientes")
+        freeze(ws)
+
+        conn = db.get_connection()
+        rows = conn.execute("""
+            SELECT
+                c.nombre,
+                c.apellido,
+                c.telefono,
+                c.edad,
+                c.notas,
+                strftime('%d/%m/%Y', c.creado_en) AS creado_en,
+                COALESCE(SUM(CASE WHEN m.tipo='cargo' THEN m.monto ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN m.tipo='abono' THEN m.monto ELSE 0 END), 0) AS deuda,
+                COUNT(DISTINCT v.id) AS visitas,
+                COALESCE(SUM(v.total), 0)          AS total_comprado,
+                MAX(v.fecha)                        AS ultima_visita
+            FROM clientes c
+            LEFT JOIN movimientos_fiado m ON m.cliente_id = c.id
+            LEFT JOIN ventas v ON v.cliente_id = c.id AND v.anulada = 0
+            GROUP BY c.id
+            ORDER BY c.nombre, c.apellido
+        """).fetchall()
+        conn.close()
+
+        encabezados = ["Nombre", "Apellido", "Teléfono", "Edad", "Notas",
+                       "Registrado", "Deuda actual", "Visitas",
+                       "Total comprado", "Última visita"]
+        for col, h in enumerate(encabezados, 1):
+            c = ws.cell(row=1, column=col, value=h)
+            enc(c)
+        ws.row_dimensions[1].height = 28
+
+        nums = {7, 8, 9}
+        for r, row in enumerate(rows, 2):
+            deuda = row["deuda"] or 0
+            ultima = str(row["ultima_visita"] or "")[:10]
+            if ultima:
+                try:
+                    from datetime import datetime
+                    ultima = datetime.strptime(ultima, "%Y-%m-%d").strftime("%d/%m/%Y")
+                except Exception:
+                    pass
+            vals = [
+                row["nombre"], row["apellido"] or "", row["telefono"] or "",
+                row["edad"] or "", row["notas"] or "", row["creado_en"] or "",
+                deuda, row["visitas"] or 0, row["total_comprado"] or 0, ultima,
+            ]
+            tiene_deuda = deuda > 0.01
+            fill = PatternFill("solid", fgColor="FFE0B2") if tiene_deuda \
+                   else PatternFill("solid", fgColor=fila_par) if r % 2 == 0 \
+                   else None
+            for col, val in enumerate(vals, 1):
+                c = ws.cell(row=r, column=col, value=val)
+                c.alignment = Alignment(
+                    horizontal="right" if col in nums else "left",
+                    vertical="center")
+                if col in {7, 9}:
+                    c.number_format = '#,##0.00'
+                if fill:
+                    c.fill = fill
+                if col == 7 and tiene_deuda:
+                    c.font = Font(bold=True, color="E65100")
+
+        # Fila totales
+        if rows:
+            fila_tot = len(rows) + 2
+            ws.cell(row=fila_tot, column=1, value="TOTALES")
+            ws.cell(row=fila_tot, column=7,
+                    value=sum(r["deuda"] or 0 for r in rows)).number_format = '#,##0.00'
+            ws.cell(row=fila_tot, column=8, value=sum(r["visitas"] or 0 for r in rows))
+            ws.cell(row=fila_tot, column=9,
+                    value=sum(r["total_comprado"] or 0 for r in rows)).number_format = '#,##0.00'
+            for col in range(1, len(encabezados) + 1):
+                tot(ws.cell(row=fila_tot, column=col))
+
+        ancho(ws)
+
     # ── Hoja: Cuentas proveedores ──────────────────────────────
 
     def _export_proveedores(self, wb, enc, tot, ancho, freeze, fila_par):
@@ -488,6 +575,17 @@ class ExportarWidget(QWidget):
             con_periodo=False,
         ))
 
+        # ── Card: Clientes ────────────────────────────────────────
+        lay.addWidget(self._card(
+            titulo="👤  Clientes",
+            descripcion=(
+                "Todos los clientes con deuda actual, visitas, total comprado\n"
+                "y última visita. Los que tienen deuda se destacan en naranja."
+            ),
+            tipo_resumen="clientes",
+            con_periodo=False,
+        ))
+
         # ── Card: Exportación completa ────────────────────────
         lay.addWidget(self._card_completo())
 
@@ -575,7 +673,7 @@ class ExportarWidget(QWidget):
 
         lbl_desc = QLabel(
             "Un solo archivo con todas las hojas: ventas (resumen y detalle),\n"
-            "stock actual y cuentas de proveedores."
+            "stock actual, cuentas de proveedores y clientes."
         )
         lbl_desc.setStyleSheet("color:#888888; font-size:9pt;")
         lay.addWidget(lbl_desc)
@@ -609,6 +707,7 @@ class ExportarWidget(QWidget):
             "ventas_detalle": "ventas_detalle",
             "stock":          "stock_actual",
             "proveedores":    "cuentas_proveedores",
+            "clientes":       "clientes",
             "completo":       "vinoteca_completo",
         }
         hoy = datetime.today().strftime("%Y%m%d")
@@ -778,9 +877,10 @@ class ExportarWidget(QWidget):
         self._chk_bk_ventas   = _QChk("🛒 Excel ventas")
         self._chk_bk_stock    = _QChk("📦 Excel stock")
         self._chk_bk_cuentas  = _QChk("🧾 Excel cuentas")
+        self._chk_bk_clientes = _QChk("👤 Excel clientes")
 
         for chk in (self._chk_bk_db, self._chk_bk_ventas,
-                    self._chk_bk_stock, self._chk_bk_cuentas):
+                    self._chk_bk_stock, self._chk_bk_cuentas, self._chk_bk_clientes):
             chk.setStyleSheet(chk_style)
 
         # Restaurar preferencias guardadas
@@ -788,21 +888,24 @@ class ExportarWidget(QWidget):
         self._chk_bk_ventas.setChecked(db.get_config("backup_scope_ventas", "0") == "1")
         self._chk_bk_stock.setChecked(db.get_config("backup_scope_stock", "0") == "1")
         self._chk_bk_cuentas.setChecked(db.get_config("backup_scope_cuentas", "0") == "1")
+        self._chk_bk_clientes.setChecked(db.get_config("backup_scope_clientes", "0") == "1")
 
         def _save_scope():
-            db.set_config("backup_scope_db",      "1" if self._chk_bk_db.isChecked()      else "0", "string")
-            db.set_config("backup_scope_ventas",   "1" if self._chk_bk_ventas.isChecked()  else "0", "string")
-            db.set_config("backup_scope_stock",    "1" if self._chk_bk_stock.isChecked()   else "0", "string")
-            db.set_config("backup_scope_cuentas",  "1" if self._chk_bk_cuentas.isChecked() else "0", "string")
+            db.set_config("backup_scope_db",       "1" if self._chk_bk_db.isChecked()       else "0", "string")
+            db.set_config("backup_scope_ventas",   "1" if self._chk_bk_ventas.isChecked()   else "0", "string")
+            db.set_config("backup_scope_stock",    "1" if self._chk_bk_stock.isChecked()    else "0", "string")
+            db.set_config("backup_scope_cuentas",  "1" if self._chk_bk_cuentas.isChecked()  else "0", "string")
+            db.set_config("backup_scope_clientes", "1" if self._chk_bk_clientes.isChecked() else "0", "string")
 
         for chk in (self._chk_bk_db, self._chk_bk_ventas,
-                    self._chk_bk_stock, self._chk_bk_cuentas):
+                    self._chk_bk_stock, self._chk_bk_cuentas, self._chk_bk_clientes):
             chk.stateChanged.connect(lambda _: _save_scope())
 
         fila_scope.addWidget(self._chk_bk_db)
         fila_scope.addWidget(self._chk_bk_ventas)
         fila_scope.addWidget(self._chk_bk_stock)
         fila_scope.addWidget(self._chk_bk_cuentas)
+        fila_scope.addWidget(self._chk_bk_clientes)
         fila_scope.addStretch()
         lay.addLayout(fila_scope)
 
@@ -839,12 +942,13 @@ class ExportarWidget(QWidget):
             return
 
         # Verificar que al menos un scope esté seleccionado
-        include_db      = hasattr(self, "_chk_bk_db")      and self._chk_bk_db.isChecked()
-        include_ventas  = hasattr(self, "_chk_bk_ventas")  and self._chk_bk_ventas.isChecked()
-        include_stock   = hasattr(self, "_chk_bk_stock")   and self._chk_bk_stock.isChecked()
-        include_cuentas = hasattr(self, "_chk_bk_cuentas") and self._chk_bk_cuentas.isChecked()
+        include_db      = hasattr(self, "_chk_bk_db")       and self._chk_bk_db.isChecked()
+        include_ventas  = hasattr(self, "_chk_bk_ventas")   and self._chk_bk_ventas.isChecked()
+        include_stock   = hasattr(self, "_chk_bk_stock")    and self._chk_bk_stock.isChecked()
+        include_cuentas = hasattr(self, "_chk_bk_cuentas")  and self._chk_bk_cuentas.isChecked()
+        include_clientes= hasattr(self, "_chk_bk_clientes") and self._chk_bk_clientes.isChecked()
 
-        if not any([include_db, include_ventas, include_stock, include_cuentas]):
+        if not any([include_db, include_ventas, include_stock, include_cuentas, include_clientes]):
             if not silencioso:
                 QMessageBox.warning(self, "Nada seleccionado",
                     "Marcá al menos una opción de qué incluir en el backup.")
@@ -884,6 +988,8 @@ class ExportarWidget(QWidget):
             TIPOS_EXCEL.append(("stock", "stock_actual"))
         if include_cuentas:
             TIPOS_EXCEL.append(("proveedores", "cuentas_proveedores"))
+        if include_clientes:
+            TIPOS_EXCEL.append(("clientes", "clientes"))
 
         self._excel_workers = []
         for tipo_worker, nombre_base in TIPOS_EXCEL:
