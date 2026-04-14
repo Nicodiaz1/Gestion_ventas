@@ -7,9 +7,9 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QFormLayout, QLineEdit, QDoubleSpinBox, QSpinBox, QDateEdit,
     QComboBox, QTextEdit, QMessageBox, QAbstractItemView,
-    QFrame, QTabWidget, QSplitter, QSizePolicy
+    QFrame, QTabWidget, QSplitter, QSizePolicy, QCompleter
 )
-from PyQt6.QtCore import Qt, QDate, pyqtSignal
+from PyQt6.QtCore import Qt, QDate, pyqtSignal, QStringListModel, QEvent
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import QToolTip
 from PyQt6.QtGui import QCursor
@@ -65,6 +65,7 @@ class DialogoFactura(QDialog):
     def __init__(self, parent=None, factura: dict = None):
         super().__init__(parent)
         self.factura = factura
+        self._proveedor_map: dict[str, int] = {}   # nombre → id
         es_nueva = factura is None
         self.setWindowTitle("Nueva factura" if es_nueva else "Editar factura")
         self.setMinimumWidth(480)
@@ -85,10 +86,15 @@ class DialogoFactura(QDialog):
         form = QFormLayout()
         form.setSpacing(10)
 
-        # Proveedor
-        self.cmb_proveedor = QComboBox()
+        # Proveedor — buscador con autocompletado
+        self.txt_proveedor = QLineEdit()
+        self.txt_proveedor.setPlaceholderText("Escribí el nombre del proveedor…")
+        self._cmpl_prov = QCompleter()
+        self._cmpl_prov.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._cmpl_prov.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        self.txt_proveedor.setCompleter(self._cmpl_prov)
         self._cargar_proveedores()
-        form.addRow("Proveedor *:", self.cmb_proveedor)
+        form.addRow("Proveedor *:", self.txt_proveedor)
 
         # Número de factura
         self.txt_numero = QLineEdit()
@@ -158,23 +164,47 @@ class DialogoFactura(QDialog):
         btn_cancel.setObjectName("btn_secundario")
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
-        btn_ok = QPushButton("💾  Guardar")
-        btn_ok.clicked.connect(self._guardar)
-        btn_row.addWidget(btn_ok)
+        self.btn_ok = QPushButton("💾  Guardar")
+        self.btn_ok.clicked.connect(self._guardar)
+        btn_row.addWidget(self.btn_ok)
         lay.addLayout(btn_row)
 
+        # ── Enter-key navigation: proveedor → n° factura → descripción → monto total → Guardar
+        self.txt_proveedor.returnPressed.connect(self._proveedor_enter)
+        self.txt_numero.returnPressed.connect(self.txt_desc.setFocus)
+        self.txt_desc.returnPressed.connect(self.spin_total.setFocus)
+        self.spin_total.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if (obj is self.spin_total
+                and event.type() == QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+            self._guardar()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _proveedor_enter(self):
+        """Autocompleta al primer match por prefijo y avanza al campo N° factura."""
+        texto = self.txt_proveedor.text().strip().lower()
+        if texto:
+            for nombre in self._proveedor_map:
+                if nombre.lower().startswith(texto):
+                    self.txt_proveedor.setText(nombre)
+                    break
+        self.txt_numero.setFocus()
+
     def _cargar_proveedores(self):
-        self.cmb_proveedor.clear()
-        self.cmb_proveedor.addItem("— Sin proveedor —", None)
+        self._proveedor_map.clear()
         for p in db.obtener_proveedores():
-            self.cmb_proveedor.addItem(p["nombre"], p["id"])
+            self._proveedor_map[p["nombre"]] = p["id"]
+        model = QStringListModel(list(self._proveedor_map.keys()))
+        self._cmpl_prov.setModel(model)
 
     def _cargar_datos(self):
         f = self.factura
-        # Buscar proveedor en combo
-        idx = self.cmb_proveedor.findData(f.get("proveedor_id"))
-        if idx >= 0:
-            self.cmb_proveedor.setCurrentIndex(idx)
+        # Buscar nombre de proveedor
+        nombre_prov = f.get("proveedor_nombre") or ""
+        self.txt_proveedor.setText(nombre_prov)
         self.txt_numero.setText(f.get("numero_factura") or "")
         self.txt_desc.setText(f.get("descripcion") or "")
         self.spin_total.setValue(f.get("monto_total") or 0)
@@ -205,8 +235,15 @@ class DialogoFactura(QDialog):
             QMessageBox.warning(self, "Monto requerido",
                                 "Ingresá el monto total de la factura.")
             return
+        nombre_prov = self.txt_proveedor.text().strip()
+        # Case-insensitive lookup
+        prov_id = None
+        for nombre, pid in self._proveedor_map.items():
+            if nombre.lower() == nombre_prov.lower():
+                prov_id = pid
+                break
         datos = {
-            "proveedor_id":      self.cmb_proveedor.currentData(),
+            "proveedor_id":      prov_id,
             "numero_factura":    self.txt_numero.text().strip(),
             "descripcion":       self.txt_desc.text().strip(),
             "monto_total":       self.spin_total.value(),
@@ -405,6 +442,20 @@ class CuentasProveedorWidget(QWidget):
             self.cmb_filtro_prov.addItem(p["nombre"], p["id"])
         self.cmb_filtro_prov.currentIndexChanged.connect(self._filtrar_facturas)
         filtro_row.addWidget(self.cmb_filtro_prov)
+
+        # Buscador de proveedor por texto
+        self.txt_filtro_prov = QLineEdit()
+        self.txt_filtro_prov.setPlaceholderText("🔍  Proveedor…")
+        self.txt_filtro_prov.setFixedWidth(200)
+        self.txt_filtro_prov.setClearButtonEnabled(True)
+        self._cmpl_filtro = QCompleter()
+        self._cmpl_filtro.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._cmpl_filtro.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        provs = db.obtener_proveedores()
+        self._cmpl_filtro.setModel(QStringListModel([p["nombre"] for p in provs]))
+        self.txt_filtro_prov.setCompleter(self._cmpl_filtro)
+        self.txt_filtro_prov.textChanged.connect(self._filtrar_facturas)
+        filtro_row.addWidget(self.txt_filtro_prov)
         filtro_row.addStretch()
         lay_todas.addLayout(filtro_row)
 
@@ -637,13 +688,14 @@ class CuentasProveedorWidget(QWidget):
 
     def _filtrar_facturas(self):
         estado     = self.cmb_filtro_estado.currentData()
-        prov_id    = self.cmb_filtro_prov.currentData()
+        busqueda   = self.txt_filtro_prov.text().strip().lower()
         if estado == "por_revisar":
-            facturas = db.obtener_facturas_proveedor(
-                proveedor_id=prov_id, por_revisar=True)
+            facturas = db.obtener_facturas_proveedor(por_revisar=True)
         else:
-            facturas = db.obtener_facturas_proveedor(
-                proveedor_id=prov_id, estado=estado)
+            facturas = db.obtener_facturas_proveedor(estado=estado)
+        if busqueda:
+            facturas = [f for f in facturas
+                        if busqueda in (f["proveedor_nombre"] or "").lower()]
         self._mostrar_facturas(facturas)
 
     def _mostrar_descripcion(self, tabla, row, col):
