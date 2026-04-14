@@ -144,20 +144,22 @@ class TarjetaMetrica(QFrame):
         lbl_sub = QLabel(subtitulo)
         lbl_sub.setObjectName("card_subtitulo")
 
-        # Hint doble click
-        lbl_hint = QLabel("doble clic para explicación")
-        lbl_hint.setStyleSheet("color:#555; font-size:7pt; font-style:italic;")
-
         lay.addWidget(lbl_tit)
         lay.addWidget(lbl_val)
         lay.addWidget(lbl_sub)
-        lay.addWidget(lbl_hint)
+
+        # Hint doble click — solo si la card tiene explicación disponible
+        if key and key in self.EXPLICACIONES:
+            lbl_hint = QLabel("doble clic para explicación")
+            lbl_hint.setStyleSheet("color:#555; font-size:7pt; font-style:italic;")
+            lay.addWidget(lbl_hint)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("Doble clic para ver qué significa esta métrica")
+
         lay.addStretch()
 
         self.lbl_val = lbl_val
         self.lbl_sub = lbl_sub
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Doble clic para ver qué significa esta métrica")
 
     def actualizar(self, valor: str, subtitulo: str = ""):
         self._raw_valor = valor
@@ -288,24 +290,28 @@ class ReportesWidget(QWidget):
         lay = QVBoxLayout(w)
         lay.setSpacing(12)
 
-        # Tarjetas de métricas
+        # Tarjetas de métricas — fila única, tamaño compacto para que entren las 8
         self.cards_hoy = {}
         cards_layout = QHBoxLayout()
-        metricas = [
-            ("total_dia",    "Total del día",    "$0",    "#C9A84C"),
-            ("ventas_dia",   "Ventas realizadas","0",     "#4CAF50"),
-            ("ticket_prom",  "Ticket promedio",  "$0",    "#2196F3"),
-            ("efectivo",     "💵 Efectivo",       "$0",    "#4CAF50"),
-            ("debito",       "💳 Débito",          "$0",    "#1565C0"),
-            ("credito",      "🏦 Crédito",        "$0",    "#7B1FA2"),
-            ("transferencia","📲 Transferencia",  "$0",    "#E65100"),
-            ("qr",           "🔲 QR",             "$0",    "#00695C"),
-        ]
-        for key, titulo, val, color in metricas:
+        cards_layout.setSpacing(6)
+        for key, titulo, val, color in [
+            ("total_dia",    "Total del día",    "$0", "#C9A84C"),
+            ("ventas_dia",   "Ventas realizadas","0",  "#4CAF50"),
+            ("ticket_prom",  "Ticket promedio",  "$0", "#2196F3"),
+            ("efectivo",     "💵 Efectivo",       "$0", "#4CAF50"),
+            ("debito",       "💳 Débito",         "$0", "#1565C0"),
+            ("credito",      "🏦 Crédito",        "$0", "#7B1FA2"),
+            ("transferencia","📲 Transferencia",  "$0", "#E65100"),
+            ("qr",           "🔲 QR",             "$0", "#00695C"),
+        ]:
             card = TarjetaMetrica(titulo, val, "", color)
+            # Compactar: ancho mínimo reducido, número más chico
+            card.setMinimumWidth(80)
+            card.setMaximumHeight(110)
+            card.lbl_val.setStyleSheet(
+                f"color: {color}; font-size: 13pt; font-weight: 800;")
             self.cards_hoy[key] = card
             cards_layout.addWidget(card)
-
         lay.addLayout(cards_layout)
 
         # Tabla de ventas del día
@@ -1000,13 +1006,15 @@ class ReportesWidget(QWidget):
         btn_buscar = QPushButton("🔍  Aplicar")
         btn_buscar.clicked.connect(self._fin_cargar_detalle)
         filt.addWidget(btn_buscar)
-        filt.addStretch()
-
-        btn_gasto = QPushButton("➕  Registrar gasto")
-        btn_gasto.setMinimumWidth(150)
-        btn_gasto.clicked.connect(self._fin_agregar_gasto)
-        filt.addWidget(btn_gasto)
         lay.addLayout(filt)
+
+        # Botón registrar gasto en su propia línea (siempre visible y sin recortes)
+        accion_bar = QHBoxLayout()
+        accion_bar.addStretch()
+        btn_gasto = QPushButton("➕  Registrar gasto")
+        btn_gasto.clicked.connect(self._fin_agregar_gasto)
+        accion_bar.addWidget(btn_gasto)
+        lay.addLayout(accion_bar)
 
         # ── Tablas: medios de pago (izq) + gastos (der) ──────
         split = QHBoxLayout()
