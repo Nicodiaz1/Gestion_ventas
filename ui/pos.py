@@ -90,8 +90,18 @@ class BuscadorProductos(QDialog):
 # ─────────────────────────────────────────────────────────────
 
 def _safe_float(text: str) -> float:
+    """Parsea un número respetando el locale del sistema.
+    Maneja separadores de miles (ej: '10.000' = 10000 en locale Argentina)."""
     try:
-        return float(text.replace(",", "."))
+        from PyQt6.QtCore import QLocale
+        t = (text or "").strip()
+        if not t:
+            return 0.0
+        val, ok = QLocale.system().toDouble(t)
+        if ok:
+            return val
+        # Fallback: solo coma decimal → punto
+        return float(t.replace(",", "."))
     except (ValueError, AttributeError):
         return 0.0
 
@@ -148,6 +158,7 @@ class CarritoWidget(QWidget):
         self._cliente_id: int | None = None
         self._cliente_saldo: float   = 0.0
         self._cliente_nombre: str    = ""
+        self._manually_edited: set   = set()   # métodos cuyo monto escribió el usuario
         self._build_ui()
         self._setup_completer()
         QTimer.singleShot(100, self.scan_input.setFocus)
@@ -711,6 +722,7 @@ class CarritoWidget(QWidget):
                 self.spin_total_final.setValue(0)
                 for metodo, txt in self._montos.items():
                     txt.setText("0")
+                self._manually_edited.clear()
                 self._refrescar_tabla()
         self.scan_input.setFocus()
 
@@ -771,21 +783,13 @@ class CarritoWidget(QWidget):
             return
         if not checked:
             txt.setText("0")
+            self._manually_edited.discard(valor)
             self._actualizar_pendiente()
             return
-        try:
-            val_actual = float(txt.text().replace(",", "."))
-        except ValueError:
-            val_actual = 0.0
+        val_actual = _safe_float(txt.text())
         if val_actual <= 0.005:
             total = self._total_actual()
-            otros = 0.0
-            for m, t in self._montos.items():
-                if m != valor:
-                    try:
-                        otros += float(t.text().replace(",", "."))
-                    except ValueError:
-                        pass
+            otros = sum(_safe_float(t.text()) for m, t in self._montos.items() if m != valor)
             restante = max(0.0, total - otros)
             if restante > 0.005:
                 txt.setText(f"{restante:.2f}")
@@ -794,21 +798,23 @@ class CarritoWidget(QWidget):
         self._actualizar_pendiente()
 
     def _on_monto_editado(self, txt_editado: QLineEdit = None, valor_editado: str = None):
-        """Recalcula el pendiente. Si hay exactamente un campo activo en otros métodos,
+        """Recalcula el pendiente. Si el usuario está editando un campo
+        y hay exactamente UN campo activo no-manual en otros métodos,
         lo ajusta automáticamente para que la suma dé el total."""
+        if valor_editado is not None:
+            self._manually_edited.add(valor_editado)
         if txt_editado is not None and valor_editado is not None:
-            try:
-                valor_nuevo = float(txt_editado.text().replace(",", "."))
-            except ValueError:
-                valor_nuevo = 0.0
+            valor_nuevo = _safe_float(txt_editado.text())
             total = self._total_actual()
-            otros_activos = [
+            # Solo auto-ajustar campos que NO fueron escritos manualmente
+            otros_ajustables = [
                 (m, t) for m, t in self._montos.items()
                 if m != valor_editado
                 and _safe_float(t.text()) > 0.005
+                and m not in self._manually_edited
             ]
-            if len(otros_activos) == 1:
-                _, t_otro = otros_activos[0]
+            if len(otros_ajustables) == 1:
+                _, t_otro = otros_ajustables[0]
                 restante = max(0.0, total - valor_nuevo)
                 t_otro.blockSignals(True)
                 t_otro.setText(f"{restante:.2f}")
@@ -824,10 +830,7 @@ class CarritoWidget(QWidget):
         """Devuelve lista de pagos activos (monto > 0)."""
         pagos = []
         for metodo, txt in self._montos.items():
-            try:
-                monto = float(txt.text().replace(",", "."))
-            except (ValueError, AttributeError):
-                monto = 0.0
+            monto = _safe_float(txt.text())
             if monto > 0.005:
                 pagos.append({"metodo": metodo, "monto": round(monto, 2)})
         return pagos
@@ -837,10 +840,7 @@ class CarritoWidget(QWidget):
         # Fiado sin cliente → ignorar ese monto
         asignado = 0.0
         for metodo, txt in self._montos.items():
-            try:
-                monto = float(txt.text().replace(",", "."))
-            except (ValueError, AttributeError):
-                monto = 0.0
+            monto = _safe_float(txt.text())
             if metodo == "fiado" and not self._cliente_id:
                 monto = 0.0
             if monto > 0.005:
@@ -848,10 +848,7 @@ class CarritoWidget(QWidget):
         pendiente = total - asignado
         # Actualizar estado de botones de método
         for metodo, txt in self._montos.items():
-            try:
-                monto = float(txt.text().replace(",", "."))
-            except (ValueError, AttributeError):
-                monto = 0.0
+            monto = _safe_float(txt.text())
             txt.setStyleSheet(
                 "QLineEdit{background:#1A2A1A;border:1px solid #2E7D32;"
                 "border-radius:5px;padding:4px 8px;font-size:11pt;color:#81C784;}"
@@ -988,6 +985,7 @@ class CarritoWidget(QWidget):
                 self.spin_total_final.setValue(0)
                 for txt in self._montos.values():
                     txt.setText("0")
+                self._manually_edited.clear()
                 self._refrescar_tabla()
                 self._cargar_ultimas_ventas()
                 self.venta_realizada.emit(venta_id)
@@ -1000,15 +998,9 @@ class CarritoWidget(QWidget):
                 if self._cliente_id and monto_excess > 0.01:
                     msg += f"\n✅ Abonó ${monto_excess:,.2f} de deuda anterior."
 
-                # Actualizar saldo en la fila del cliente
-                if self._cliente_id:
-                    self._cliente_saldo = db.saldo_cliente(self._cliente_id)
-                    saldo_txt = (f"  —  💳 Debe: ${self._cliente_saldo:,.2f}"
-                                 if self._cliente_saldo > 0.01 else "  ✅ Sin deuda")
-                    color = "#FF9800" if self._cliente_saldo > 0.01 else "#4CAF50"
-                    self.lbl_cliente.setText(f"👤  {self._cliente_nombre}{saldo_txt}")
-                    self.lbl_cliente.setStyleSheet(
-                        f"color:{color}; font-size:9pt; padding:2px 0;")
+                # Limpiar cliente asignado para la próxima venta
+                if self._cliente_id is not None:
+                    self._quitar_cliente()
 
                 QMessageBox.information(self, "✅  Venta registrada", msg)
             except Exception as e:
