@@ -2014,7 +2014,7 @@ class StockWidget(QWidget):
                 continue
             match_texto = (not texto or
                           texto in p["nombre"].lower() or
-                          texto in (p.get("codigo_barras") or "").lower())
+                          texto in (p["codigo_barras"] or "").lower())
             match_cat   = cat_id is None or p.get("categoria_id") == cat_id
             self.prec_tabla.setRowHidden(row, not (match_texto and match_cat))
 
