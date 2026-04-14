@@ -1003,6 +1003,7 @@ class ReportesWidget(QWidget):
         filt.addStretch()
 
         btn_gasto = QPushButton("➕  Registrar gasto")
+        btn_gasto.setMinimumWidth(150)
         btn_gasto.clicked.connect(self._fin_agregar_gasto)
         filt.addWidget(btn_gasto)
         lay.addLayout(filt)
@@ -1024,10 +1025,11 @@ class ReportesWidget(QWidget):
         self.fin_tabla_mp.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.fin_tabla_mp.verticalHeader().setVisible(False)
         self.fin_tabla_mp.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.fin_tabla_mp.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         for i, mp in enumerate(["💵 Efectivo","💳 Débito","🏦 Crédito","📲 Transferencia","🔲 QR"]):
             self.fin_tabla_mp.setItem(i, 0, QTableWidgetItem(mp))
             self.fin_tabla_mp.setItem(i, 1, QTableWidgetItem("$0"))
-        izq.addWidget(self.fin_tabla_mp)
+        izq.addWidget(self.fin_tabla_mp, 1)
         split.addLayout(izq, 1)
 
         # Derecha: tabla de gastos (ordenable por encabezado)
@@ -1049,6 +1051,7 @@ class ReportesWidget(QWidget):
         self.fin_tabla_gastos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.fin_tabla_gastos.setAlternatingRowColors(True)
         self.fin_tabla_gastos.setSortingEnabled(True)
+        self.fin_tabla_gastos.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         der.addWidget(self.fin_tabla_gastos, 1)
         split.addLayout(der, 2)
 
