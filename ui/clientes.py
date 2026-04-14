@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QFormLayout, QLineEdit, QSpinBox, QTextEdit, QMessageBox,
     QAbstractItemView, QFrame, QTabWidget, QDoubleSpinBox,
-    QCompleter, QSizePolicy
+    QCompleter, QSizePolicy, QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QStringListModel, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -626,7 +626,6 @@ class BuscadorClientes(QDialog):
         self.txt_buscar.textChanged.connect(self._buscar)
         lay.addWidget(self.txt_buscar)
 
-        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
         self.lista = QListWidget()
         self.lista.setAlternatingRowColors(True)
         self.lista.setMinimumHeight(200)
@@ -652,10 +651,7 @@ class BuscadorClientes(QDialog):
         self._buscar("")
         self.txt_buscar.setFocus()
 
-        self._QListWidgetItem = __import__("PyQt6.QtWidgets", fromlist=["QListWidgetItem"]).QListWidgetItem
-
     def _buscar(self, texto: str):
-        from PyQt6.QtWidgets import QListWidgetItem
         self.lista.clear()
         clientes = db.obtener_clientes(texto.strip())
         for c in clientes:
