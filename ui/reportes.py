@@ -819,27 +819,24 @@ class ReportesWidget(QWidget):
     # ── Tab: FINANZAS / KPIs ──────────────────────────────────
 
     def _build_tab_finanzas(self):
-        # Outer container → QScrollArea so all content is scrollable
-        outer = QWidget()
-        outer_lay = QVBoxLayout(outer)
-        outer_lay.setContentsMargins(0, 0, 0, 0)
+        outer = QTabWidget()
+        outer.addTab(self._build_fin_tab_metricas(), "📊  Métricas")
+        outer.addTab(self._build_fin_tab_detalle(),  "📋  Detalle")
+        self._fin_cargar()
+        self._fin_cargar_detalle()
+        return outer
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        outer_lay.addWidget(scroll)
+    # ── Sub-tab: MÉTRICAS ─────────────────────────────────────
 
-        inner = QWidget()
-        lay = QVBoxLayout(inner)
+    def _build_fin_tab_metricas(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
         lay.setSpacing(8)
-        lay.setContentsMargins(16, 16, 16, 24)
-        scroll.setWidget(inner)
+        lay.setContentsMargins(16, 16, 16, 16)
 
-        # Altura fija para TODAS las tarjetas → uniformidad total
         CARD_H = 155
 
         def _sec_label(texto, color):
-            """Etiqueta de sección con borde izquierdo de color."""
             lbl = QLabel(f"  {texto}")
             lbl.setStyleSheet(
                 f"color:{color}; font-size:10pt; font-weight:700; "
@@ -872,29 +869,24 @@ class ReportesWidget(QWidget):
         btn_cargar.clicked.connect(self._fin_cargar)
         ctrl.addWidget(btn_cargar)
         ctrl.addStretch()
-
-        btn_gasto = QPushButton("➕  Registrar gasto")
-        btn_gasto.clicked.connect(self._fin_agregar_gasto)
-        ctrl.addWidget(btn_gasto)
         lay.addLayout(ctrl)
         lay.addSpacing(8)
 
         # ── Sección: Resultados del período ──────────────────
+        self.fin_cards = {}
         lay.addWidget(_sec_label("Resultados del período", "#C9A84C"))
         lay.addSpacing(4)
 
-        self.fin_cards = {}
         kpi_grid = QGridLayout()
         kpi_grid.setSpacing(10)
         kpi_grid.setColumnStretch(0, 1)
         kpi_grid.setColumnStretch(1, 1)
         kpi_grid.setColumnStretch(2, 1)
-
         for grid_row, grid_col, key, titulo, color in [
             (0, 0, "ingresos",     "Ingresos totales",    "#C9A84C"),
             (0, 1, "costo",        "Costo de lo vendido", "#888888"),
             (0, 2, "margen_bruto", "Margen bruto",        "#4CAF50"),
-            (1, 0, "gastos",       "Gastos operativos",  "#EF5350"),
+            (1, 0, "gastos",       "Gastos operativos",   "#EF5350"),
             (1, 1, "margen_neto",  "Margen neto",         "#2196F3"),
         ]:
             card = TarjetaMetrica(titulo, "—", "", color, key=key)
@@ -952,16 +944,60 @@ class ReportesWidget(QWidget):
             sueldo_row.addWidget(card)
         sueldo_row.addStretch()
         lay.addLayout(sueldo_row)
-        lay.addSpacing(16)
+        lay.addStretch()
+        return w
 
-        # ── Separador ─────────────────────────────────────────
-        hsep = QFrame()
-        hsep.setFrameShape(QFrame.Shape.HLine)
-        hsep.setStyleSheet("color:#333;")
-        lay.addWidget(hsep)
-        lay.addSpacing(8)
+    # ── Sub-tab: DETALLE ──────────────────────────────────────
 
-        # ── Tablas: medios de pago + gastos ──────────────────
+    def _build_fin_tab_detalle(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setSpacing(10)
+        lay.setContentsMargins(16, 12, 16, 16)
+
+        # ── Barra de filtros ──────────────────────────────────
+        filt = QHBoxLayout()
+        filt.setSpacing(8)
+
+        hoy = QDate.currentDate()
+
+        filt.addWidget(QLabel("Desde:"))
+        self.fin_det_desde = QDateEdit(QDate(hoy.year(), hoy.month(), 1))
+        self.fin_det_desde.setCalendarPopup(True)
+        self.fin_det_desde.setDisplayFormat("dd/MM/yyyy")
+        filt.addWidget(self.fin_det_desde)
+
+        filt.addWidget(QLabel("Hasta:"))
+        self.fin_det_hasta = QDateEdit(hoy)
+        self.fin_det_hasta.setCalendarPopup(True)
+        self.fin_det_hasta.setDisplayFormat("dd/MM/yyyy")
+        filt.addWidget(self.fin_det_hasta)
+
+        filt.addWidget(QLabel("Categoría:"))
+        self.fin_det_cat = QComboBox()
+        self.fin_det_cat.addItem("Todas", None)
+        for cat in db.CATEGORIAS_GASTO:
+            self.fin_det_cat.addItem(cat, cat)
+        filt.addWidget(self.fin_det_cat)
+
+        filt.addWidget(QLabel("Buscar:"))
+        self.fin_det_buscar = QLineEdit()
+        self.fin_det_buscar.setPlaceholderText("Descripción...")
+        self.fin_det_buscar.setFixedWidth(160)
+        self.fin_det_buscar.returnPressed.connect(self._fin_cargar_detalle)
+        filt.addWidget(self.fin_det_buscar)
+
+        btn_buscar = QPushButton("🔍  Aplicar")
+        btn_buscar.clicked.connect(self._fin_cargar_detalle)
+        filt.addWidget(btn_buscar)
+        filt.addStretch()
+
+        btn_gasto = QPushButton("➕  Registrar gasto")
+        btn_gasto.clicked.connect(self._fin_agregar_gasto)
+        filt.addWidget(btn_gasto)
+        lay.addLayout(filt)
+
+        # ── Tablas: medios de pago (izq) + gastos (der) ──────
         split = QHBoxLayout()
         split.setSpacing(16)
 
@@ -978,17 +1014,16 @@ class ReportesWidget(QWidget):
         self.fin_tabla_mp.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.fin_tabla_mp.verticalHeader().setVisible(False)
         self.fin_tabla_mp.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.fin_tabla_mp.setMinimumHeight(210)
         for i, mp in enumerate(["💵 Efectivo","💳 Débito","🏦 Crédito","📲 Transferencia","🔲 QR"]):
             self.fin_tabla_mp.setItem(i, 0, QTableWidgetItem(mp))
             self.fin_tabla_mp.setItem(i, 1, QTableWidgetItem("$0"))
         izq.addWidget(self.fin_tabla_mp)
         split.addLayout(izq, 1)
 
-        # Derecha: tabla de gastos
+        # Derecha: tabla de gastos (ordenable por encabezado)
         der = QVBoxLayout()
         der.setSpacing(6)
-        lbl_g = QLabel("Gastos del período")
+        lbl_g = QLabel("Gastos del período  —  clic en encabezado para ordenar")
         lbl_g.setStyleSheet("font-weight:700; font-size:11pt; color:#EF5350;")
         der.addWidget(lbl_g)
 
@@ -1002,17 +1037,13 @@ class ReportesWidget(QWidget):
         self.fin_tabla_gastos.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.fin_tabla_gastos.verticalHeader().setVisible(False)
         self.fin_tabla_gastos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.fin_tabla_gastos.setMinimumHeight(210)
-        der.addWidget(self.fin_tabla_gastos)
+        self.fin_tabla_gastos.setAlternatingRowColors(True)
+        self.fin_tabla_gastos.setSortingEnabled(True)
+        der.addWidget(self.fin_tabla_gastos, 1)
         split.addLayout(der, 2)
 
-        # ⚠️  Sin stretch factor aquí — el inner widget tiene altura fija,
-        #     lo que garantiza que el QScrollArea genere scrollbar correctamente.
-        lay.addLayout(split)
-
-        # Carga inicial
-        self._fin_cargar()
-        return outer
+        lay.addLayout(split, 1)
+        return w
 
     def _fin_rango(self):
         """Devuelve (desde, hasta) en formato ISO según el selector."""
@@ -1050,33 +1081,6 @@ class ReportesWidget(QWidget):
         self._fin_margen_bruto = res["margen_bruto"]
         self._fin_margen_neto  = res["margen_neto"]
         self._fin_actualizar_sueldos()
-
-        # Tabla medios
-        mp = res["por_medio"]
-        for i, key in enumerate(["efectivo","debito","credito","transferencia","qr"]):
-            self.fin_tabla_mp.setItem(i, 1, QTableWidgetItem(f"${mp[key]:,.2f}"))
-
-        # Tabla gastos
-        gastos = db.obtener_gastos_periodo(desde, hasta)
-        self.fin_tabla_gastos.setRowCount(len(gastos))
-        for i, g in enumerate(gastos):
-            self.fin_tabla_gastos.setItem(i, 0, QTableWidgetItem(str(g["fecha"])))
-            self.fin_tabla_gastos.setItem(i, 1, QTableWidgetItem(g["categoria"]))
-            self.fin_tabla_gastos.setItem(i, 2, QTableWidgetItem(g["descripcion"]))
-            monto_it = QTableWidgetItem(f"${g['monto']:,.2f}")
-            monto_it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            monto_it.setForeground(QColor("#EF5350"))
-            self.fin_tabla_gastos.setItem(i, 3, monto_it)
-            # Botón eliminar
-            gid = g["id"]
-            btn_del = QPushButton("✕")
-            btn_del.setFixedSize(28, 28)
-            btn_del.setStyleSheet(
-                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:4px;font-weight:700;}"
-                "QPushButton:hover{background:#7F0000;}")
-            btn_del.clicked.connect(lambda _, gid=gid: self._fin_eliminar_gasto(gid))
-            self.fin_tabla_gastos.setCellWidget(i, 4, btn_del)
-            self.fin_tabla_gastos.setRowHeight(i, 36)
 
     def _fin_actualizar_sueldos(self):
         """Recalcula tarjetas de sueldo según el checkbox de gastos operativos."""
@@ -1150,7 +1154,58 @@ class ReportesWidget(QWidget):
                 QMessageBox.warning(self, "Datos incompletos", "El monto debe ser mayor a $0.")
                 return
             db.registrar_gasto(fecha, cat, desc, monto)
-            self._fin_cargar()
+            self._fin_cargar_detalle()
+
+    def _fin_cargar_detalle(self):
+        """Recarga las tablas del tab Detalle usando los filtros de fecha/categoría/texto."""
+        desde = self.fin_det_desde.date().toString("yyyy-MM-dd")
+        hasta = self.fin_det_hasta.date().toString("yyyy-MM-dd")
+        cat_sel = self.fin_det_cat.currentData()          # None → todas
+        texto   = self.fin_det_buscar.text().strip().lower()
+
+        # Tabla medios de pago (mismo rango de fechas que los filtros del detalle)
+        res = db.resumen_finanzas_periodo(desde, hasta)
+        mp  = res["por_medio"]
+        for i, key in enumerate(["efectivo","debito","credito","transferencia","qr"]):
+            self.fin_tabla_mp.setItem(i, 1, QTableWidgetItem(f"${mp[key]:,.2f}"))
+
+        # Tabla gastos con filtros aplicados en Python
+        gastos = db.obtener_gastos_periodo(desde, hasta)
+        if cat_sel:
+            gastos = [g for g in gastos if g["categoria"] == cat_sel]
+        if texto:
+            gastos = [g for g in gastos if texto in g["descripcion"].lower()]
+
+        # Subclase local para ordenamiento numérico correcto en columna Monto
+        class _NumItem(QTableWidgetItem):
+            def __lt__(self, other):
+                try:
+                    return (float(self.data(Qt.ItemDataRole.UserRole)) <
+                            float(other.data(Qt.ItemDataRole.UserRole)))
+                except (TypeError, ValueError):
+                    return super().__lt__(other)
+
+        self.fin_tabla_gastos.setSortingEnabled(False)
+        self.fin_tabla_gastos.setRowCount(len(gastos))
+        for i, g in enumerate(gastos):
+            self.fin_tabla_gastos.setItem(i, 0, QTableWidgetItem(str(g["fecha"])))
+            self.fin_tabla_gastos.setItem(i, 1, QTableWidgetItem(g["categoria"]))
+            self.fin_tabla_gastos.setItem(i, 2, QTableWidgetItem(g["descripcion"]))
+            monto_it = _NumItem(f"${g['monto']:,.2f}")
+            monto_it.setData(Qt.ItemDataRole.UserRole, g["monto"])
+            monto_it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            monto_it.setForeground(QColor("#EF5350"))
+            self.fin_tabla_gastos.setItem(i, 3, monto_it)
+            gid = g["id"]
+            btn_del = QPushButton("✕")
+            btn_del.setFixedSize(28, 28)
+            btn_del.setStyleSheet(
+                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:4px;font-weight:700;}"
+                "QPushButton:hover{background:#7F0000;}")
+            btn_del.clicked.connect(lambda _, gid=gid: self._fin_eliminar_gasto(gid))
+            self.fin_tabla_gastos.setCellWidget(i, 4, btn_del)
+            self.fin_tabla_gastos.setRowHeight(i, 36)
+        self.fin_tabla_gastos.setSortingEnabled(True)
 
     def _fin_eliminar_gasto(self, gasto_id: int):
         resp = QMessageBox.question(
@@ -1159,7 +1214,7 @@ class ReportesWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if resp == QMessageBox.StandardButton.Yes:
             db.eliminar_gasto(gasto_id)
-            self._fin_cargar()
+            self._fin_cargar_detalle()
 
     # ── Tab: HISTORIAL DE VENTAS ──────────────────────────────
 
