@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
             ("📦  Stock",             1, "F6"),
             ("📊  Reportes",          2, "F7"),
             ("🧾  Cuentas",           3, "F9"),
-            ("�  Clientes",          4, "F11"),
+            ("👤  Clientes",          4, "F11"),
             ("📂  Exportar datos",    5, "F10"),
             ("⚙️   Configuración",    6, "F8"),
         ]
