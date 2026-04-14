@@ -1061,15 +1061,31 @@ class CarritoWidget(QWidget):
         ]
         try:
             venta_id = db.registrar_venta(
-                items_db, "extraccion", descuento=0, recargo_pct=0)
+                items_db, "extraccion", descuento=0, recargo_pct=0,
+                cliente_id=self._cliente_id)
+
+            # Registrar en la cuenta del cliente si hay uno asignado
+            if self._cliente_id:
+                detalle_txt = ", ".join(
+                    f"{i.cantidad}x {i.nombre}" for i in self.carrito)
+                db.registrar_movimiento_fiado(
+                    self._cliente_id, "cargo", total_costo,
+                    f"Extracción #{venta_id}: {detalle_txt}", venta_id)
+
             self.carrito.clear()
             self.spin_porcentaje.setValue(0)
             self.spin_total_final.setValue(0)
             for txt in self._montos.values():
                 txt.setText("0")
+            self._manually_edited.clear()
             self._refrescar_tabla()
             self._cargar_ultimas_ventas()
             self.venta_realizada.emit(venta_id)
+
+            # Limpiar cliente asignado
+            if self._cliente_id is not None:
+                self._quitar_cliente()
+
             self.scan_input.setFocus()
             QMessageBox.information(
                 self, "✅  Extracción registrada",
