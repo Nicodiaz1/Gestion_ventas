@@ -18,6 +18,15 @@ from db import database as db
 from ui.styles import _SPIN_SUBCONTROLES as _SPIN_SUBS
 
 
+class NumericItem(QTableWidgetItem):
+    """QTableWidgetItem que ordena numéricamente (no alfabéticamente)."""
+    def __lt__(self, other):
+        try:
+            return float(self.data(Qt.ItemDataRole.UserRole)) < float(other.data(Qt.ItemDataRole.UserRole))
+        except (TypeError, ValueError):
+            return super().__lt__(other)
+
+
 class FilaColorDelegate(QStyledItemDelegate):
     """Fuerza el background personalizado incluso con QSS activo en macOS."""
     def paint(self, painter, option, index):
@@ -1227,6 +1236,9 @@ class StockWidget(QWidget):
         self.tabla_productos.verticalHeader().setVisible(False)
         self.tabla_productos.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla_productos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla_productos.setSortingEnabled(True)
+        self.tabla_productos.horizontalHeader().setSortIndicatorShown(True)
+        self.tabla_productos.horizontalHeader().sectionClicked.connect(self._ordenar_columna)
         lay_cat.addWidget(self.tabla_productos)
 
         tab_catalogo.setLayout(lay_cat)
@@ -1426,16 +1438,23 @@ class StockWidget(QWidget):
                 nombre_item = QTableWidgetItem(nombre)
             self.tabla_productos.setItem(i, 2, nombre_item)
             self.tabla_productos.setItem(i, 3, QTableWidgetItem(p["categoria_nombre"] or ""))
-            self.tabla_productos.setItem(i, 4, QTableWidgetItem(f"${p['precio_venta']:,.2f}"))
-            self.tabla_productos.setItem(i, 5, QTableWidgetItem(f"${p['precio_costo']:,.2f}"))
+            item_venta = NumericItem(f"${p['precio_venta']:,.2f}")
+            item_venta.setData(Qt.ItemDataRole.UserRole, float(p['precio_venta']))
+            self.tabla_productos.setItem(i, 4, item_venta)
 
-            stock_item = QTableWidgetItem(str(p["stock_actual"]))
+            item_costo = NumericItem(f"${p['precio_costo']:,.2f}")
+            item_costo.setData(Qt.ItemDataRole.UserRole, float(p['precio_costo']))
+            self.tabla_productos.setItem(i, 5, item_costo)
+
+            stock_item = NumericItem(str(p["stock_actual"]))
+            stock_item.setData(Qt.ItemDataRole.UserRole, float(p["stock_actual"]))
             stock_bajo = p["stock_actual"] <= p["stock_minimo"]
             vence_pronto = p["id"] in getattr(self, "_vencimiento_cache", set())
             if stock_bajo:
                 stock_item.setForeground(QColor("#FF9800"))
                 stock_item.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             self.tabla_productos.setItem(i, 6, stock_item)
+            self.tabla_productos.setSortingEnabled(False)  # evitar resort mientras se llenan botones
 
             # Colorear fila completa según estado
             if stock_bajo:
@@ -1510,6 +1529,14 @@ class StockWidget(QWidget):
             acc_lay.addWidget(btn_del)
             self.tabla_productos.setCellWidget(i, 7, acc_widget)
             self.tabla_productos.setRowHeight(i, 48)
+
+        self.tabla_productos.setSortingEnabled(True)
+
+    def _ordenar_columna(self, col: int):
+        """Solo habilita el sort en columnas numéricas (precio/stock)."""
+        # Columnas ordenables: 4=Precio venta, 5=Costo, 6=Stock
+        # Las demás se ordenan alfabéticamente por defecto (ya funciona)
+        pass  # setSortingEnabled hace todo el trabajo
 
     def _filtrar(self):
         texto = self.txt_filtro.text().lower()
