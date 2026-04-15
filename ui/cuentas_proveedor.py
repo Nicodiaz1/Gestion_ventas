@@ -961,10 +961,11 @@ class CuentasProveedorWidget(QWidget):
         self.an_spin_anio = QSpinBox()
         self.an_spin_anio.setRange(2000, 2100)
         self.an_spin_anio.setValue(QDate.currentDate().year())
-        self.an_spin_anio.setFixedWidth(75)
+        self.an_spin_anio.setFixedWidth(90)
+        self.an_spin_anio.setMinimumHeight(30)
         self.an_spin_anio.setStyleSheet(
             "QSpinBox{background:#111;border:1px solid #444;border-radius:4px;"
-            "padding:2px 20px 2px 6px;color:#DDDDDD;}"
+            "padding:2px 22px 2px 6px;color:#DDDDDD;}"
             + _SPIN_SUBS)
         ctrl.addWidget(self.an_spin_anio)
 
@@ -987,13 +988,20 @@ class CuentasProveedorWidget(QWidget):
         lbl_prov = QLabel("Proveedor:")
         lbl_prov.setStyleSheet("color:#CCCCCC; background:transparent;")
         ctrl.addWidget(lbl_prov)
+        self._an_proveedores = db.obtener_proveedores()
         self.an_cmb_prov = QComboBox()
         self.an_cmb_prov.addItem("Todos", None)
-        for p in db.obtener_proveedores():
+        for p in self._an_proveedores:
             self.an_cmb_prov.addItem(p["nombre"], p["id"])
-        self.an_cmb_prov.setFixedWidth(180)
+        self.an_cmb_prov.setFixedWidth(200)
+        self.an_cmb_prov.setMinimumHeight(30)
         self.an_cmb_prov.setEditable(True)
         self.an_cmb_prov.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        _completer = QCompleter([p["nombre"] for p in self._an_proveedores], self.an_cmb_prov)
+        _completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        _completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.an_cmb_prov.setCompleter(_completer)
+        self.an_cmb_prov.activated.connect(self._cargar_analisis)
         ctrl.addWidget(self.an_cmb_prov)
 
         btn_ver = QPushButton("📊  Ver")
@@ -1086,6 +1094,15 @@ class CuentasProveedorWidget(QWidget):
         # prov_id desde el combo si no vino por parámetro (doble clic)
         if prov_id is None:
             prov_id = self.an_cmb_prov.currentData()
+            # Si el combo está en modo editable y currentData() es None,
+            # buscar por texto escrito
+            if prov_id is None:
+                texto = self.an_cmb_prov.currentText().strip()
+                if texto and texto != "Todos":
+                    for i in range(self.an_cmb_prov.count()):
+                        if self.an_cmb_prov.itemText(i).lower() == texto.lower():
+                            prov_id = self.an_cmb_prov.itemData(i)
+                            break
 
         if mes == 0:
             desde = f"{anio}-01-01"

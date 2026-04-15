@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QDialog, QFormLayout, QComboBox, QSpinBox,
     QDoubleSpinBox, QAbstractItemView, QTabWidget, QTextEdit,
-    QFrame, QCheckBox, QSizePolicy, QDateEdit, QStyledItemDelegate, QMenu
+    QFrame, QCheckBox, QSizePolicy, QDateEdit, QStyledItemDelegate, QMenu,
+    QScrollArea
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QDate
 from PyQt6.QtGui import QColor, QFont
@@ -199,7 +200,17 @@ class DialogoProducto(QDialog):
         self.chk_tiene_venc.stateChanged.connect(
             lambda s: self.date_venc.setVisible(s == Qt.CheckState.Checked.value))
 
-        lay.addLayout(form)
+        # Envolver el form en QScrollArea para que todo sea scrolleable
+        form_widget = QWidget()
+        form_scroll_lay = QVBoxLayout(form_widget)
+        form_scroll_lay.setContentsMargins(0, 0, 4, 0)
+        form_scroll_lay.addLayout(form)
+        form_scroll_lay.addStretch()
+        scroll_form = QScrollArea()
+        scroll_form.setWidgetResizable(True)
+        scroll_form.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_form.setWidget(form_widget)
+        lay.addWidget(scroll_form, 1)
 
         # Botones
         btn_row = QHBoxLayout()
@@ -208,6 +219,10 @@ class DialogoProducto(QDialog):
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.setObjectName("btn_secundario")
         btn_cancel.clicked.connect(self.reject)
+        btn_ok.setDefault(False)
+        btn_ok.setAutoDefault(False)
+        btn_cancel.setDefault(False)
+        btn_cancel.setAutoDefault(False)
         btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
         lay.addLayout(btn_row)
@@ -217,6 +232,17 @@ class DialogoProducto(QDialog):
             self.lbl_upc_hint.setText("unidad por unidad  (sin agrupamiento en cajas)")
         else:
             self.lbl_upc_hint.setText(f"{valor} unidades por caja  →  En la carga podés ingresar por caja")
+
+    def keyPressEvent(self, event):
+        """Enter avanza al siguiente campo en lugar de disparar Guardar."""
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            w = self.focusWidget()
+            if isinstance(w, QTextEdit):
+                super().keyPressEvent(event)  # QTextEdit: salto de línea normal
+            else:
+                self.focusNextChild()
+        else:
+            super().keyPressEvent(event)
 
     def _cargar_categorias(self):
         self.cmb_categoria.clear()
