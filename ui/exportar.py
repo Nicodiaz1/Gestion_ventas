@@ -746,6 +746,10 @@ class ExportarWidget(QWidget):
             "  background:#1A2A1A; border:1px solid #2E7D32;"
             "  border-radius:8px; padding:16px;"
             "}"
+            "QRadioButton { color:#CCCCCC; font-size:9pt; background:transparent; }"
+            "QRadioButton::indicator { width:14px; height:14px; border-radius:7px;"
+            " border:2px solid #777; background:#111; }"
+            "QRadioButton::indicator:checked { background:#C9A84C; border-color:#C9A84C; }"
         )
         lay = QVBoxLayout(frame)
         lay.setSpacing(12)
@@ -798,19 +802,7 @@ class ExportarWidget(QWidget):
 
         self._grp_modo = QButtonGroup(frame)
         self._rb_sobreescribir = QRadioButton("Sobreescribir (un solo archivo)")
-        self._rb_sobreescribir.setStyleSheet(
-            "color:#CCCCCC; font-size:9pt; background:transparent;"
-            "QRadioButton::indicator { width:13px; height:13px; border-radius:7px;"
-            " border:2px solid #666; background:transparent; }"
-            "QRadioButton::indicator:checked { background:#81C784; border-color:#81C784; }"
-        )
         self._rb_con_fecha = QRadioButton("Agregar con fecha (historial)")
-        self._rb_con_fecha.setStyleSheet(
-            "color:#CCCCCC; font-size:9pt; background:transparent;"
-            "QRadioButton::indicator { width:13px; height:13px; border-radius:7px;"
-            " border:2px solid #666; background:transparent; }"
-            "QRadioButton::indicator:checked { background:#81C784; border-color:#81C784; }"
-        )
         self._grp_modo.addButton(self._rb_sobreescribir, 0)
         self._grp_modo.addButton(self._rb_con_fecha, 1)
 
@@ -831,6 +823,32 @@ class ExportarWidget(QWidget):
         fila_modo.addWidget(self._rb_con_fecha)
         fila_modo.addStretch()
         lay.addLayout(fila_modo)
+
+        # ── Toggle: backup automático habilitado ──────────────
+        from PyQt6.QtWidgets import QCheckBox as _QChk
+        fila_auto = QHBoxLayout()
+        self._chk_auto = _QChk("🔄  Activar backup automático")
+        self._chk_auto.setStyleSheet(
+            "color:#81C784; font-size:9pt; font-weight:600; background:transparent;"
+            "QCheckBox::indicator { width:14px; height:14px; border-radius:3px;"
+            " border:2px solid #777; background:#111; }"
+            "QCheckBox::indicator:checked { background:#C9A84C; border-color:#C9A84C; }"
+        )
+        auto_habilitado = db.get_config("backup_auto_habilitado", "1") == "1"
+        self._chk_auto.setChecked(auto_habilitado)
+        self._chk_auto.stateChanged.connect(
+            lambda v: db.set_config("backup_auto_habilitado", "1" if v else "0", "string")
+        )
+        fila_auto.addWidget(self._chk_auto)
+        fila_auto.addStretch()
+        lay.addLayout(fila_auto)
+
+        lbl_auto_info = QLabel(
+            "⏰  Cada vez que abrís la app, si pasaron los días configurados el backup corre solo."
+        )
+        lbl_auto_info.setStyleSheet("color:#666; font-size:8pt; background:transparent;")
+        lbl_auto_info.setWordWrap(True)
+        lay.addWidget(lbl_auto_info)
 
         # ── Fila: frecuencia + último backup ──────────────────
         fila_freq = QHBoxLayout()
@@ -878,7 +896,6 @@ class ExportarWidget(QWidget):
         lbl_scope.setStyleSheet("color:#CCCCCC; font-size:9pt; font-weight:600; background:transparent;")
         lay.addWidget(lbl_scope)
 
-        from PyQt6.QtWidgets import QCheckBox as _QChk
         fila_scope = QHBoxLayout()
         fila_scope.setSpacing(16)
 
@@ -895,7 +912,7 @@ class ExportarWidget(QWidget):
 
         # Restaurar preferencias guardadas
         self._chk_bk_db.setChecked(db.get_config("backup_scope_db", "1") != "0")
-        self._chk_bk_ventas.setChecked(db.get_config("backup_scope_ventas", "0") == "1")
+        self._chk_bk_ventas.setChecked(db.get_config("backup_scope_ventas", "1") == "1")
         self._chk_bk_stock.setChecked(db.get_config("backup_scope_stock", "0") == "1")
         self._chk_bk_cuentas.setChecked(db.get_config("backup_scope_cuentas", "0") == "1")
         self._chk_bk_clientes.setChecked(db.get_config("backup_scope_clientes", "0") == "1")
@@ -1076,6 +1093,8 @@ class ExportarWidget(QWidget):
 
     def _verificar_backup_automatico(self):
         """Comprueba si corresponde hacer un backup automático según la frecuencia configurada."""
+        if db.get_config("backup_auto_habilitado", "1") != "1":
+            return   # Auto-backup deshabilitado por el usuario
         carpeta = db.get_config("backup_carpeta", "")
         if not carpeta or not os.path.isdir(carpeta):
             return
