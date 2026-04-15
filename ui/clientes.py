@@ -227,6 +227,7 @@ class DialogoDetalleCliente(QDialog):
         cl.setContentsMargins(12, 8, 12, 8)
         lbl_t = QLabel(titulo)
         lbl_t.setObjectName("card_titulo")
+        lbl_t.setStyleSheet("background:transparent;")
         lbl_v = QLabel(valor)
         lbl_v.setStyleSheet(f"font-size:14pt; font-weight:800; color:{color}; background:transparent;")
         cl.addWidget(lbl_t)
