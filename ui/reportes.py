@@ -42,6 +42,10 @@ class GraficoCanvas(FigureCanvas if HAS_MATPLOTLIB else QWidget):
         else:
             super().__init__(parent)
 
+    def wheelEvent(self, event):
+        # Pasar el wheel event al padre para que el QScrollArea lo procese
+        event.ignore()
+
     def limpiar(self):
         if HAS_MATPLOTLIB:
             self.fig.clear()
