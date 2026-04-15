@@ -944,23 +944,57 @@ class CuentasProveedorWidget(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         lay = QVBoxLayout(inner)
-        lay.setSpacing(12)
-        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(14)
+        lay.setContentsMargins(16, 16, 16, 16)
         scroll.setWidget(inner)
         outer_lay.addWidget(scroll)
 
         # ── Controles de filtro ──
         ctrl = QHBoxLayout()
-        ctrl.addWidget(QLabel("Desde:"))
-        self.an_date_desde = QDateEdit(QDate.currentDate().addMonths(-6))
-        self.an_date_desde.setCalendarPopup(True)
-        self.an_date_desde.setDisplayFormat("dd/MM/yyyy")
-        ctrl.addWidget(self.an_date_desde)
-        ctrl.addWidget(QLabel("Hasta:"))
-        self.an_date_hasta = QDateEdit(QDate.currentDate())
-        self.an_date_hasta.setCalendarPopup(True)
-        self.an_date_hasta.setDisplayFormat("dd/MM/yyyy")
-        ctrl.addWidget(self.an_date_hasta)
+        ctrl.setSpacing(10)
+
+        # Año
+        lbl_anio = QLabel("Año:")
+        lbl_anio.setStyleSheet("color:#CCCCCC; background:transparent;")
+        ctrl.addWidget(lbl_anio)
+        self.an_spin_anio = QSpinBox()
+        self.an_spin_anio.setRange(2000, 2100)
+        self.an_spin_anio.setValue(QDate.currentDate().year())
+        self.an_spin_anio.setFixedWidth(75)
+        self.an_spin_anio.setStyleSheet(
+            "QSpinBox{background:#111;border:1px solid #444;border-radius:4px;"
+            "padding:2px 20px 2px 6px;color:#DDDDDD;}"
+            + _SPIN_SUBS)
+        ctrl.addWidget(self.an_spin_anio)
+
+        # Mes
+        lbl_mes = QLabel("Mes:")
+        lbl_mes.setStyleSheet("color:#CCCCCC; background:transparent;")
+        ctrl.addWidget(lbl_mes)
+        self.an_cmb_mes = QComboBox()
+        self.an_cmb_mes.addItem("Todo el año", 0)
+        for i, m in enumerate(["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"], 1):
+            self.an_cmb_mes.addItem(m, i)
+        self.an_cmb_mes.setCurrentIndex(QDate.currentDate().month())
+        self.an_cmb_mes.setFixedWidth(130)
+        ctrl.addWidget(self.an_cmb_mes)
+
+        ctrl.addSpacing(16)
+
+        # Buscador proveedor
+        lbl_prov = QLabel("Proveedor:")
+        lbl_prov.setStyleSheet("color:#CCCCCC; background:transparent;")
+        ctrl.addWidget(lbl_prov)
+        self.an_cmb_prov = QComboBox()
+        self.an_cmb_prov.addItem("Todos", None)
+        for p in db.obtener_proveedores():
+            self.an_cmb_prov.addItem(p["nombre"], p["id"])
+        self.an_cmb_prov.setFixedWidth(180)
+        self.an_cmb_prov.setEditable(True)
+        self.an_cmb_prov.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        ctrl.addWidget(self.an_cmb_prov)
+
         btn_ver = QPushButton("📊  Ver")
         btn_ver.setStyleSheet(
             "QPushButton{background:#722F37;color:white;font-weight:700;"
@@ -995,7 +1029,7 @@ class CuentasProveedorWidget(QWidget):
         self.an_tabla.setAlternatingRowColors(True)
         self.an_tabla.verticalHeader().setVisible(False)
         self.an_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.an_tabla.setMinimumHeight(200)
+        self.an_tabla.setMinimumHeight(240)
         self.an_tabla.cellDoubleClicked.connect(self._an_doble_clic_proveedor)
         lay.addWidget(self.an_tabla)
 
@@ -1005,9 +1039,21 @@ class CuentasProveedorWidget(QWidget):
         lay.addWidget(self._an_titulo_grafico)
 
         if HAS_MATPLOTLIB:
-            self.an_canvas = _GraficoMini(width=10, height=4)
-            self.an_canvas.setMinimumHeight(300)
+            self.an_canvas = _GraficoMini(width=10, height=5)
+            self.an_canvas.setMinimumHeight(380)
             lay.addWidget(self.an_canvas)
+        else:
+            lay.addWidget(QLabel("Instalá matplotlib para ver el gráfico"))
+
+        # ── Gráfico 2: año completo ──
+        self._an_titulo_anio = QLabel("📅  Resumen anual — todos los meses del año")
+        self._an_titulo_anio.setStyleSheet("color:#AAAAAA; font-size:9pt; background:transparent;")
+        lay.addWidget(self._an_titulo_anio)
+
+        if HAS_MATPLOTLIB:
+            self.an_canvas_anio = _GraficoMini(width=10, height=4)
+            self.an_canvas_anio.setMinimumHeight(300)
+            lay.addWidget(self.an_canvas_anio)
         else:
             lay.addWidget(QLabel("Instalá matplotlib para ver el gráfico"))
 
@@ -1032,10 +1078,23 @@ class CuentasProveedorWidget(QWidget):
         return lbl_v
 
     def _cargar_analisis(self, prov_id=None):
-        desde     = self.an_date_desde.date().toString("yyyy-MM-dd")
-        hasta     = self.an_date_hasta.date().toString("yyyy-MM-dd")
-        datos     = db.compras_por_periodo(desde, hasta, prov_id)
+        import calendar
+        anio = self.an_spin_anio.value()
+        mes  = self.an_cmb_mes.currentData()   # 0 = todo el año, 1-12 = mes
 
+        # prov_id desde el combo si no vino por parámetro (doble clic)
+        if prov_id is None:
+            prov_id = self.an_cmb_prov.currentData()
+
+        if mes == 0:
+            desde = f"{anio}-01-01"
+            hasta = f"{anio}-12-31"
+        else:
+            ultimo = calendar.monthrange(anio, mes)[1]
+            desde = f"{anio}-{mes:02d}-01"
+            hasta = f"{anio}-{mes:02d}-{ultimo:02d}"
+
+        datos     = db.compras_por_periodo(desde, hasta, prov_id)
         por_prov  = datos["por_proveedor"]
         por_mes   = datos["por_mes"]
         ventas_r  = datos["ventas"]
@@ -1074,19 +1133,35 @@ class CuentasProveedorWidget(QWidget):
             self.an_tabla.setItem(i, 3, it_d)
             self.an_tabla.setRowHeight(i, 36)
 
-        # Gráfico para todos
-        self._an_titulo_grafico.setText("📈  Compras vs. Ventas por mes — todos los proveedores")
+        # Gráfico 1: período seleccionado
+        nombre_prov = self.an_cmb_prov.currentText() if prov_id else "todos los proveedores"
+        self._an_titulo_grafico.setText(f"📈  Compras vs. Ventas — {nombre_prov}")
         self._dibujar_grafico_analisis(por_mes, ventas_mes)
+
+        # Gráfico 2: año completo (siempre todos los meses del año)
+        self._an_titulo_anio.setText(f"📅  Resumen anual {anio} — {nombre_prov}")
+        datos_anio = db.compras_por_periodo(f"{anio}-01-01", f"{anio}-12-31", prov_id)
+        self._dibujar_grafico_anio(datos_anio["por_mes"], datos_anio["ventas_mes"], anio)
 
     def _an_doble_clic_proveedor(self, row: int, col: int):
         """Doble clic en tabla: filtra el gráfico para ese proveedor."""
+        import calendar
         it = self.an_tabla.item(row, 0)
         if it is None:
             return
         prov_id   = it.data(Qt.ItemDataRole.UserRole)
         prov_name = it.text()
-        desde = self.an_date_desde.date().toString("yyyy-MM-dd")
-        hasta = self.an_date_hasta.date().toString("yyyy-MM-dd")
+
+        anio = self.an_spin_anio.value()
+        mes  = self.an_cmb_mes.currentData()
+        if mes == 0:
+            desde = f"{anio}-01-01"
+            hasta = f"{anio}-12-31"
+        else:
+            ultimo = calendar.monthrange(anio, mes)[1]
+            desde = f"{anio}-{mes:02d}-01"
+            hasta = f"{anio}-{mes:02d}-{ultimo:02d}"
+
         datos = db.compras_por_periodo(desde, hasta, prov_id)
         self._an_titulo_grafico.setText(
             f"📈  Compras vs. Ventas por mes — {prov_name}")
@@ -1156,6 +1231,58 @@ class CuentasProveedorWidget(QWidget):
                   edgecolor="#444", labelcolor="#F5F5F5", framealpha=0.9)
         self.an_canvas.fig.tight_layout()
         self.an_canvas.draw()
+
+    def _dibujar_grafico_anio(self, por_mes, ventas_mes, anio: int):
+        """Gráfico de barras con los 12 meses del año completo."""
+        if not HAS_MATPLOTLIB:
+            return
+
+        MESES = ["Ene","Feb","Mar","Abr","May","Jun",
+                 "Jul","Ago","Sep","Oct","Nov","Dic"]
+
+        todos_meses = [f"{anio}-{m:02d}" for m in range(1, 13)]
+
+        compras_vals = np.array(
+            [next((r["compras_total"] or 0 for r in por_mes if r["mes"] == m), 0)
+             for m in todos_meses], dtype=float)
+        ventas_vals = np.array(
+            [next((r["ventas_total"] or 0 for r in ventas_mes if r["mes"] == m), 0)
+             for m in todos_meses], dtype=float)
+
+        self.an_canvas_anio.fig.clear()
+        ax = self.an_canvas_anio.fig.add_subplot(111)
+        ax.set_facecolor("#1A1A1A")
+        self.an_canvas_anio.fig.patch.set_facecolor("#1A1A1A")
+
+        xs = np.arange(12)
+        w = 0.35
+
+        bars_c = ax.bar(xs - w/2, compras_vals, w,
+                        color="#FF6B35", alpha=0.9, label="🟠 Compras")
+        bars_v = ax.bar(xs + w/2, ventas_vals,  w,
+                        color="#4CAF50", alpha=0.9, label="🟢 Ventas")
+
+        max_val = max(np.max(compras_vals), np.max(ventas_vals)) if compras_vals.size else 1
+        for bar in list(bars_c) + list(bars_v):
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, h + max_val * 0.01,
+                        f"${h:,.0f}", ha="center", va="bottom",
+                        color="#DDDDDD", fontsize=7, fontweight="bold")
+
+        ax.set_xticks(xs)
+        ax.set_xticklabels(MESES, color="#BBBBBB", fontsize=9)
+        ax.tick_params(axis="y", colors="#888888")
+        ax.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+        ax.set_ylim(0, max_val * 1.2 if max_val > 0 else 1)
+        ax.spines[:].set_color("#333")
+        ax.set_axisbelow(True)
+        ax.yaxis.grid(True, color="#2E2E2E", linewidth=0.7)
+        ax.legend(loc="upper left", fontsize=9, facecolor="#2A2A2A",
+                  edgecolor="#444", labelcolor="#F5F5F5", framealpha=0.9)
+        self.an_canvas_anio.fig.tight_layout()
+        self.an_canvas_anio.draw()
 
     def _on_revisar_changed(self, item: QTableWidgetItem):
         """Guardado automático al tildar/destildar el checkbox de revisar."""

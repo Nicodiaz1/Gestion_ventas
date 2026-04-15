@@ -8,7 +8,7 @@
 #  y avisará automáticamente si hay versión nueva.
 # ─────────────────────────────────────────────────────────────
 
-VERSION_ACTUAL = "1.9.9"
+VERSION_ACTUAL = "2.0.0"
 
 import os as _os, sys as _sys
 
