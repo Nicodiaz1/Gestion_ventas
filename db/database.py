@@ -1101,7 +1101,8 @@ def compras_por_periodo(desde: str, hasta: str, proveedor_id: int = None) -> dic
 
         # Totales del período por proveedor
         por_proveedor = conn.execute(f"""
-            SELECT pr.nombre AS proveedor_nombre,
+            SELECT f.proveedor_id,
+                   pr.nombre AS proveedor_nombre,
                    COUNT(f.id)              AS total_facturas,
                    SUM(f.monto_total)       AS compras_total,
                    SUM(f.monto_pagado)      AS pagado_total,
