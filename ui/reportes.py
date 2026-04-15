@@ -252,10 +252,6 @@ class ReportesWidget(QWidget):
         titulo.setObjectName("titulo_seccion")
         header.addWidget(titulo)
         header.addStretch()
-
-        btn_exportar = QPushButton("📤  Exportar a Excel")
-        btn_exportar.clicked.connect(self._exportar_excel)
-        header.addWidget(btn_exportar)
         lay.addLayout(header)
 
         # Tabs
@@ -278,6 +274,9 @@ class ReportesWidget(QWidget):
 
         # ── Tab: Ventas detalladas ──────────────────────────
         tabs.addTab(self._build_tab_historial_ventas(), "🧾  Historial de Ventas")
+
+        # ── Tab: Gráficas ───────────────────────────────────
+        tabs.addTab(self._build_tab_graficas(), "📉  Gráficas")
 
         tabs.currentChanged.connect(self._tab_changed)
         lay.addWidget(tabs, 1)
@@ -1314,6 +1313,180 @@ class ReportesWidget(QWidget):
                 total_item.setText(f"ANULADA")
             self.tabla_hist_ventas.setItem(i, 6, total_item)
             self.tabla_hist_ventas.setRowHeight(i, 40)
+
+    # ── Tab: GRÁFICAS ─────────────────────────────────────────
+
+    def _build_tab_graficas(self):
+        outer = QWidget()
+        outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer_lay.addWidget(scroll)
+
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.setSpacing(24)
+        lay.setContentsMargins(16, 16, 16, 24)
+        scroll.setWidget(inner)
+
+        if not HAS_MATPLOTLIB:
+            lbl = QLabel("📦  Para ver las gráficas instalá matplotlib:\n  pip install matplotlib")
+            lbl.setStyleSheet("color:#888; font-size:11pt; padding:40px;")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lay.addWidget(lbl)
+            lay.addStretch()
+            return outer
+
+        # ── Selector de período compartido ────────────────────
+        ctrl = QHBoxLayout()
+        ctrl.setSpacing(10)
+        ctrl.addWidget(QLabel("Año:"))
+        self.graf_spin_anio = QSpinBox()
+        self.graf_spin_anio.setRange(2020, 2099)
+        self.graf_spin_anio.setValue(date.today().year)
+        ctrl.addWidget(self.graf_spin_anio)
+
+        ctrl.addWidget(QLabel("Mes (gráfico 1):"))
+        self.graf_cmb_mes = QComboBox()
+        meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                 "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+        for i, m in enumerate(meses, 1):
+            self.graf_cmb_mes.addItem(m, i)
+        self.graf_cmb_mes.setCurrentIndex(date.today().month - 1)
+        ctrl.addWidget(self.graf_cmb_mes)
+
+        btn_graf = QPushButton("📊  Generar")
+        btn_graf.clicked.connect(self._graf_cargar)
+        ctrl.addWidget(btn_graf)
+        ctrl.addStretch()
+        lay.addLayout(ctrl)
+
+        # ── Gráfico 1: Ventas por día del mes ─────────────────
+        def _sec(texto):
+            lbl = QLabel(texto)
+            lbl.setStyleSheet(
+                "color:#C9A84C; font-size:11pt; font-weight:700;"
+                "border-left:3px solid #C9A84C; padding:3px 0 3px 10px;")
+            return lbl
+
+        lay.addWidget(_sec("📅  Ventas por día del mes"))
+        self.graf_canvas_dias = GraficoCanvas(width=10, height=4)
+        lay.addWidget(self.graf_canvas_dias)
+
+        # ── Gráfico 2: Evolución mensual del año ──────────────
+        lay.addWidget(_sec("📈  Evolución mensual del año"))
+        self.graf_canvas_meses = GraficoCanvas(width=10, height=4)
+        lay.addWidget(self.graf_canvas_meses)
+
+        lay.addStretch()
+
+        # Carga inicial
+        self._graf_cargar()
+        return outer
+
+    def _graf_cargar(self):
+        if not HAS_MATPLOTLIB:
+            return
+
+        anio = self.graf_spin_anio.value()
+        mes  = self.graf_cmb_mes.currentData()
+
+        import calendar
+        ultimo_dia = calendar.monthrange(anio, mes)[1]
+        desde_mes  = f"{anio}-{mes:02d}-01"
+        hasta_mes  = f"{anio}-{mes:02d}-{ultimo_dia:02d}"
+
+        # ── Gráfico 1: barras por día ─────────────────────────
+        rep = db.reporte_ventas_por_periodo(desde_mes, hasta_mes)
+        dias_data = {row["fecha"]: row["total"] for row in rep["por_dia"]}
+
+        todos_dias = [f"{anio}-{mes:02d}-{d:02d}" for d in range(1, ultimo_dia + 1)]
+        totales    = [dias_data.get(d, 0) for d in todos_dias]
+        etiquetas  = [str(d) for d in range(1, ultimo_dia + 1)]
+
+        fig1 = self.graf_canvas_dias.fig
+        fig1.clear()
+        ax1 = fig1.add_subplot(111)
+        ax1.set_facecolor("#1E1E1E")
+        fig1.patch.set_facecolor("#1E1E1E")
+
+        colores = ["#C9A84C" if t > 0 else "#3C3C3C" for t in totales]
+        bars = ax1.bar(etiquetas, totales, color=colores, zorder=2)
+        ax1.set_xlabel("Día del mes", color="#AAAAAA", fontsize=9)
+        ax1.set_ylabel("Ingresos ($)", color="#AAAAAA", fontsize=9)
+        ax1.set_title(
+            f"Ventas por día — {self.graf_cmb_mes.currentText()} {anio}",
+            color="#F5F5F5", fontsize=11, fontweight="bold", pad=12)
+        ax1.tick_params(colors="#AAAAAA", labelsize=7)
+        ax1.spines[:].set_color("#3C3C3C")
+        ax1.yaxis.grid(True, color="#2C2C2C", zorder=0)
+        ax1.set_axisbelow(True)
+
+        # Etiquetar solo barras con valor > 0
+        for bar, val in zip(bars, totales):
+            if val > 0:
+                ax1.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() * 1.02,
+                    f"${val:,.0f}",
+                    ha="center", va="bottom", color="#C9A84C",
+                    fontsize=6.5, fontweight="bold")
+
+        fig1.tight_layout()
+        self.graf_canvas_dias.draw()
+
+        # ── Gráfico 2: línea mensual del año ──────────────────
+        from db.database import get_connection
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT strftime('%m', fecha) as mes,
+                       SUM(total) as total
+                FROM ventas
+                WHERE strftime('%Y', fecha) = ? AND anulada = 0
+                GROUP BY mes ORDER BY mes
+            """, (str(anio),)).fetchall()
+
+        meses_labels = ["Ene","Feb","Mar","Abr","May","Jun",
+                        "Jul","Ago","Sep","Oct","Nov","Dic"]
+        mes_data = {int(r["mes"]): r["total"] for r in rows}
+        valores  = [mes_data.get(m, 0) for m in range(1, 13)]
+
+        fig2 = self.graf_canvas_meses.fig
+        fig2.clear()
+        ax2 = fig2.add_subplot(111)
+        ax2.set_facecolor("#1E1E1E")
+        fig2.patch.set_facecolor("#1E1E1E")
+
+        ax2.plot(meses_labels, valores, color="#C9A84C",
+                 linewidth=2.5, marker="o", markersize=6, zorder=3)
+        ax2.fill_between(range(12), valores,
+                         color="#C9A84C", alpha=0.12, zorder=2)
+
+        ax2.set_xlabel("Mes", color="#AAAAAA", fontsize=9)
+        ax2.set_ylabel("Ingresos ($)", color="#AAAAAA", fontsize=9)
+        ax2.set_title(
+            f"Evolución mensual — {anio}",
+            color="#F5F5F5", fontsize=11, fontweight="bold", pad=12)
+        ax2.set_xticks(range(12))
+        ax2.set_xticklabels(meses_labels)
+        ax2.tick_params(colors="#AAAAAA", labelsize=8)
+        ax2.spines[:].set_color("#3C3C3C")
+        ax2.yaxis.grid(True, color="#2C2C2C", zorder=0)
+        ax2.set_axisbelow(True)
+
+        # Valor en cada punto
+        for xi, yi in enumerate(valores):
+            if yi > 0:
+                ax2.annotate(
+                    f"${yi:,.0f}",
+                    (xi, yi), textcoords="offset points", xytext=(0, 8),
+                    ha="center", color="#C9A84C", fontsize=7, fontweight="bold")
+
+        fig2.tight_layout()
+        self.graf_canvas_meses.draw()
 
     def _tab_changed(self, idx: int):
         if idx == 0:
