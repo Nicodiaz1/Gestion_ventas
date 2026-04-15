@@ -1373,12 +1373,14 @@ class ReportesWidget(QWidget):
             return lbl
 
         lay.addWidget(_sec("📅  Ventas por día del mes"))
-        self.graf_canvas_dias = GraficoCanvas(width=10, height=4)
+        self.graf_canvas_dias = GraficoCanvas(width=10, height=5)
+        self.graf_canvas_dias.setMinimumHeight(360)
         lay.addWidget(self.graf_canvas_dias)
 
         # ── Gráfico 2: Evolución mensual del año ──────────────
         lay.addWidget(_sec("📈  Evolución mensual del año"))
-        self.graf_canvas_meses = GraficoCanvas(width=10, height=4)
+        self.graf_canvas_meses = GraficoCanvas(width=10, height=5)
+        self.graf_canvas_meses.setMinimumHeight(360)
         lay.addWidget(self.graf_canvas_meses)
 
         lay.addStretch()
@@ -1399,13 +1401,14 @@ class ReportesWidget(QWidget):
         desde_mes  = f"{anio}-{mes:02d}-01"
         hasta_mes  = f"{anio}-{mes:02d}-{ultimo_dia:02d}"
 
-        # ── Gráfico 1: barras por día ─────────────────────────
+        # ── Gráfico 1: línea con puntos por día ──────────────
         rep = db.reporte_ventas_por_periodo(desde_mes, hasta_mes)
         dias_data = {row["fecha"]: row["total"] for row in rep["por_dia"]}
 
         todos_dias = [f"{anio}-{mes:02d}-{d:02d}" for d in range(1, ultimo_dia + 1)]
         totales    = [dias_data.get(d, 0) for d in todos_dias]
         etiquetas  = [str(d) for d in range(1, ultimo_dia + 1)]
+        x_range    = list(range(len(etiquetas)))
 
         fig1 = self.graf_canvas_dias.fig
         fig1.clear()
@@ -1413,8 +1416,26 @@ class ReportesWidget(QWidget):
         ax1.set_facecolor("#1E1E1E")
         fig1.patch.set_facecolor("#1E1E1E")
 
-        colores = ["#C9A84C" if t > 0 else "#3C3C3C" for t in totales]
-        bars = ax1.bar(etiquetas, totales, color=colores, zorder=2)
+        # Línea principal
+        ax1.plot(x_range, totales, color="#C9A84C", linewidth=2, zorder=3)
+        # Puntos: dorados si hay venta, grises si es 0
+        colores_pts = ["#C9A84C" if t > 0 else "#3C3C3C" for t in totales]
+        ax1.scatter(x_range, totales, color=colores_pts,
+                    s=55, zorder=4, edgecolors="#1E1E1E", linewidths=1)
+        # Área bajo la curva
+        ax1.fill_between(x_range, totales, color="#C9A84C", alpha=0.10, zorder=2)
+
+        # Etiqueta encima de cada punto con venta
+        for xi, (val, col) in enumerate(zip(totales, colores_pts)):
+            if val > 0:
+                ax1.annotate(
+                    f"${val:,.0f}",
+                    (xi, val), textcoords="offset points", xytext=(0, 9),
+                    ha="center", va="bottom", color="#C9A84C",
+                    fontsize=7, fontweight="bold")
+
+        ax1.set_xticks(x_range)
+        ax1.set_xticklabels(etiquetas, fontsize=7)
         ax1.set_xlabel("Día del mes", color="#AAAAAA", fontsize=9)
         ax1.set_ylabel("Ingresos ($)", color="#AAAAAA", fontsize=9)
         ax1.set_title(
@@ -1424,16 +1445,6 @@ class ReportesWidget(QWidget):
         ax1.spines[:].set_color("#3C3C3C")
         ax1.yaxis.grid(True, color="#2C2C2C", zorder=0)
         ax1.set_axisbelow(True)
-
-        # Etiquetar solo barras con valor > 0
-        for bar, val in zip(bars, totales):
-            if val > 0:
-                ax1.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() * 1.02,
-                    f"${val:,.0f}",
-                    ha="center", va="bottom", color="#C9A84C",
-                    fontsize=6.5, fontweight="bold")
 
         fig1.tight_layout()
         self.graf_canvas_dias.draw()
