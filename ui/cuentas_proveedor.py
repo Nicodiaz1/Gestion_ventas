@@ -18,6 +18,7 @@ from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import database as db
+from ui.styles import _SPIN_SUBCONTROLES as _SPIN_SUBS
 
 try:
     import matplotlib
