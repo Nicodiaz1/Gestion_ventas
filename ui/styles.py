@@ -214,9 +214,9 @@ QHeaderView::section {
     border-radius: 12px;
     border: 1px solid #3C3C3C;
 }
-#card_titulo { color: #AAAAAA; font-size: 9pt; }
-#card_valor  { color: #F5F5F5; font-size: 22pt; font-weight: 800; }
-#card_subtitulo { color: #C9A84C; font-size: 9pt; }
+#card_titulo { color: #AAAAAA; font-size: 9pt; background: transparent; }
+#card_valor  { color: #F5F5F5; font-size: 22pt; font-weight: 800; background: transparent; }
+#card_subtitulo { color: #C9A84C; font-size: 9pt; background: transparent; }
 
 /* ── Labels ────────────────────────────────────────────── */
 QLabel#titulo_seccion {

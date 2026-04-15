@@ -155,7 +155,7 @@ class TarjetaMetrica(QFrame):
         # Hint doble click — solo si la card tiene explicación disponible
         if key and key in self.EXPLICACIONES:
             lbl_hint = QLabel("doble clic para explicación")
-            lbl_hint.setStyleSheet("color:#555; font-size:7pt; font-style:italic;")
+            lbl_hint.setStyleSheet("color:#888888; font-size:7pt; font-style:italic; background:transparent;")
             lay.addWidget(lbl_hint)
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self.setToolTip("Doble clic para ver qué significa esta métrica")
@@ -460,6 +460,7 @@ class ReportesWidget(QWidget):
             self.tabla_medios.setItem(i, 1, QTableWidgetItem("$0"))
         split.addWidget(self.tabla_medios, 1)
         lay.addLayout(split)
+        lay.addStretch()
         return w
 
     def _set_rango(self, dias: int, btn_idx: int = -1):

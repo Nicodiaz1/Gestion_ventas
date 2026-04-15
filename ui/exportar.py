@@ -798,9 +798,19 @@ class ExportarWidget(QWidget):
 
         self._grp_modo = QButtonGroup(frame)
         self._rb_sobreescribir = QRadioButton("Sobreescribir (un solo archivo)")
-        self._rb_sobreescribir.setStyleSheet("color:#CCCCCC; font-size:9pt; background:transparent;")
+        self._rb_sobreescribir.setStyleSheet(
+            "color:#CCCCCC; font-size:9pt; background:transparent;"
+            "QRadioButton::indicator { width:13px; height:13px; border-radius:7px;"
+            " border:2px solid #666; background:transparent; }"
+            "QRadioButton::indicator:checked { background:#81C784; border-color:#81C784; }"
+        )
         self._rb_con_fecha = QRadioButton("Agregar con fecha (historial)")
-        self._rb_con_fecha.setStyleSheet("color:#CCCCCC; font-size:9pt; background:transparent;")
+        self._rb_con_fecha.setStyleSheet(
+            "color:#CCCCCC; font-size:9pt; background:transparent;"
+            "QRadioButton::indicator { width:13px; height:13px; border-radius:7px;"
+            " border:2px solid #666; background:transparent; }"
+            "QRadioButton::indicator:checked { background:#81C784; border-color:#81C784; }"
+        )
         self._grp_modo.addButton(self._rb_sobreescribir, 0)
         self._grp_modo.addButton(self._rb_con_fecha, 1)
 
