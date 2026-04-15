@@ -610,11 +610,11 @@ class ExportarWidget(QWidget):
         lay.setSpacing(10)
 
         lbl_tit = QLabel(titulo)
-        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#DDDDDD;")
+        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#DDDDDD; background:transparent;")
         lay.addWidget(lbl_tit)
 
         lbl_desc = QLabel(descripcion)
-        lbl_desc.setStyleSheet("color:#888888; font-size:9pt;")
+        lbl_desc.setStyleSheet("color:#888888; font-size:9pt; background:transparent;")
         lay.addWidget(lbl_desc)
 
         # Fila inferior: periodo (opcional) + botones
@@ -668,14 +668,14 @@ class ExportarWidget(QWidget):
         lay.setSpacing(10)
 
         lbl_tit = QLabel("📦  Exportación completa")
-        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#C9A84C;")
+        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#C9A84C; background:transparent;")
         lay.addWidget(lbl_tit)
 
         lbl_desc = QLabel(
             "Un solo archivo con todas las hojas: ventas (resumen y detalle),\n"
             "stock actual, cuentas de proveedores y clientes."
         )
-        lbl_desc.setStyleSheet("color:#888888; font-size:9pt;")
+        lbl_desc.setStyleSheet("color:#888888; font-size:9pt; background:transparent;")
         lay.addWidget(lbl_desc)
 
         fila = QHBoxLayout()
@@ -751,21 +751,21 @@ class ExportarWidget(QWidget):
         lay.setSpacing(12)
 
         lbl_tit = QLabel("🗄️  Backup automático")
-        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#81C784;")
+        lbl_tit.setStyleSheet("font-size:13px; font-weight:700; color:#81C784; background:transparent;")
         lay.addWidget(lbl_tit)
 
         lbl_desc = QLabel(
             "Copia de seguridad de la base de datos (o exportación Excel selectiva).\n"
             "Se guarda en la carpeta que elijas (OneDrive, pendrive, etc.)."
         )
-        lbl_desc.setStyleSheet("color:#888888; font-size:9pt;")
+        lbl_desc.setStyleSheet("color:#888888; font-size:9pt; background:transparent;")
         lay.addWidget(lbl_desc)
 
         # ── Fila: carpeta destino ─────────────────────────────
         fila_carpeta = QHBoxLayout()
         fila_carpeta.setSpacing(8)
         lbl_c = QLabel("Carpeta:")
-        lbl_c.setStyleSheet("color:#CCCCCC; min-width:70px;")
+        lbl_c.setStyleSheet("color:#CCCCCC; min-width:70px; background:transparent;")
         fila_carpeta.addWidget(lbl_c)
 
         self._txt_carpeta = QLineEdit()
@@ -793,14 +793,14 @@ class ExportarWidget(QWidget):
         fila_modo.setSpacing(8)
         from PyQt6.QtWidgets import QRadioButton, QButtonGroup
         lbl_modo = QLabel("Modo:")
-        lbl_modo.setStyleSheet("color:#CCCCCC; min-width:70px;")
+        lbl_modo.setStyleSheet("color:#CCCCCC; min-width:70px; background:transparent;")
         fila_modo.addWidget(lbl_modo)
 
         self._grp_modo = QButtonGroup(frame)
         self._rb_sobreescribir = QRadioButton("Sobreescribir (un solo archivo)")
-        self._rb_sobreescribir.setStyleSheet("color:#CCCCCC; font-size:9pt;")
+        self._rb_sobreescribir.setStyleSheet("color:#CCCCCC; font-size:9pt; background:transparent;")
         self._rb_con_fecha = QRadioButton("Agregar con fecha (historial)")
-        self._rb_con_fecha.setStyleSheet("color:#CCCCCC; font-size:9pt;")
+        self._rb_con_fecha.setStyleSheet("color:#CCCCCC; font-size:9pt; background:transparent;")
         self._grp_modo.addButton(self._rb_sobreescribir, 0)
         self._grp_modo.addButton(self._rb_con_fecha, 1)
 
@@ -826,7 +826,7 @@ class ExportarWidget(QWidget):
         fila_freq = QHBoxLayout()
         fila_freq.setSpacing(8)
         lbl_f = QLabel("Cada:")
-        lbl_f.setStyleSheet("color:#CCCCCC; min-width:70px;")
+        lbl_f.setStyleSheet("color:#CCCCCC; min-width:70px; background:transparent;")
         fila_freq.addWidget(lbl_f)
 
         self._spin_dias = QSpinBox()
@@ -853,7 +853,7 @@ class ExportarWidget(QWidget):
         ultima = db.get_config("backup_ultima_fecha", "")
         txt_ultima = f"Último backup: {ultima}" if ultima else "Nunca se hizo backup"
         self._lbl_ultima = QLabel(txt_ultima)
-        self._lbl_ultima.setStyleSheet("color:#666666; font-size:9pt;")
+        self._lbl_ultima.setStyleSheet("color:#666666; font-size:9pt; background:transparent;")
         fila_freq.addWidget(self._lbl_ultima)
         fila_freq.addStretch()
         lay.addLayout(fila_freq)
@@ -865,14 +865,14 @@ class ExportarWidget(QWidget):
         lay.addWidget(sep_scope)
 
         lbl_scope = QLabel("¿Qué incluir?")
-        lbl_scope.setStyleSheet("color:#CCCCCC; font-size:9pt; font-weight:600;")
+        lbl_scope.setStyleSheet("color:#CCCCCC; font-size:9pt; font-weight:600; background:transparent;")
         lay.addWidget(lbl_scope)
 
         from PyQt6.QtWidgets import QCheckBox as _QChk
         fila_scope = QHBoxLayout()
         fila_scope.setSpacing(16)
 
-        chk_style = "color:#CCCCCC; font-size:9pt;"
+        chk_style = "color:#CCCCCC; font-size:9pt; background:transparent;"
         self._chk_bk_db       = _QChk("🗄 Base de datos completa")
         self._chk_bk_ventas   = _QChk("🛒 Excel ventas")
         self._chk_bk_stock    = _QChk("📦 Excel stock")
