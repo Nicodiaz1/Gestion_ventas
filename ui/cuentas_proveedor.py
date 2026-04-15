@@ -926,7 +926,12 @@ class CuentasProveedorWidget(QWidget):
         elif idx == 2:
             self._cargar_resumen()
         elif idx == 3:
-            self._cargar_analisis()
+            try:
+                self._cargar_analisis()
+            except Exception as e:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "Error en Análisis de compras",
+                    f"Detalle del error:\n{type(e).__name__}: {e}")
 
     def _build_tab_analisis(self) -> QWidget:
         # Wrapper con QScrollArea para que todo sea scrolleable
