@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QFormLayout, QLineEdit, QDoubleSpinBox, QSpinBox, QDateEdit,
     QComboBox, QTextEdit, QMessageBox, QAbstractItemView,
-    QFrame, QTabWidget, QSplitter, QSizePolicy, QCompleter
+    QFrame, QTabWidget, QSplitter, QSizePolicy, QCompleter, QScrollArea
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QStringListModel, QEvent
 from PyQt6.QtGui import QColor, QFont
