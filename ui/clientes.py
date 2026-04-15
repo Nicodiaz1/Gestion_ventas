@@ -394,7 +394,7 @@ class ClientesWidget(QWidget):
         lbl_t = QLabel(titulo)
         lbl_t.setObjectName("card_titulo")
         lbl_v = QLabel(valor)
-        lbl_v.setStyleSheet(f"font-size:18pt; font-weight:800; color:{color};")
+        lbl_v.setStyleSheet(f"font-size:18pt; font-weight:800; color:{color}; background:transparent;")
         cl.addWidget(lbl_t)
         cl.addWidget(lbl_v)
         self._resumen_row.addWidget(card)

@@ -39,6 +39,9 @@ class _GraficoMini(FigureCanvas if HAS_MATPLOTLIB else QWidget):
         else:
             super().__init__(parent)
 
+    def wheelEvent(self, event):
+        event.ignore()
+
 
 # ─────────────────────────────────────────────────────────────
 #  Helpers de color por estado
@@ -579,7 +582,7 @@ class CuentasProveedorWidget(QWidget):
             lbl_t = QLabel(titulo)
             lbl_t.setObjectName("card_titulo")
             lbl_v = QLabel(valor)
-            lbl_v.setStyleSheet(f"font-size:18pt; font-weight:800; color:{color};")
+            lbl_v.setStyleSheet(f"font-size:18pt; font-weight:800; color:{color}; background:transparent;")
             card_lay.addWidget(lbl_t)
             card_lay.addWidget(lbl_v)
             self.resumen_row.addWidget(card)
@@ -926,10 +929,20 @@ class CuentasProveedorWidget(QWidget):
             self._cargar_analisis()
 
     def _build_tab_analisis(self) -> QWidget:
-        w = QWidget()
-        lay = QVBoxLayout(w)
-        lay.setSpacing(10)
+        # Wrapper con QScrollArea para que todo sea scrolleable
+        outer = QWidget()
+        outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.setSpacing(12)
         lay.setContentsMargins(12, 12, 12, 12)
+        scroll.setWidget(inner)
+        outer_lay.addWidget(scroll)
 
         # ── Controles de filtro ──
         ctrl = QHBoxLayout()
@@ -943,12 +956,6 @@ class CuentasProveedorWidget(QWidget):
         self.an_date_hasta.setCalendarPopup(True)
         self.an_date_hasta.setDisplayFormat("dd/MM/yyyy")
         ctrl.addWidget(self.an_date_hasta)
-        ctrl.addWidget(QLabel("Proveedor:"))
-        self.an_cmb_prov = QComboBox()
-        self.an_cmb_prov.addItem("Todos los proveedores", None)
-        for p in db.obtener_proveedores():
-            self.an_cmb_prov.addItem(p["nombre"], p["id"])
-        ctrl.addWidget(self.an_cmb_prov)
         btn_ver = QPushButton("📊  Ver")
         btn_ver.setStyleSheet(
             "QPushButton{background:#722F37;color:white;font-weight:700;"
@@ -961,16 +968,17 @@ class CuentasProveedorWidget(QWidget):
 
         # ── Tarjetas de resumen ──
         self.an_cards_row = QHBoxLayout()
-        self._an_lbl_compras  = self._an_card("COMPRAS TOTALES",  "$ 0",       "#FF9800")
-        self._an_lbl_ventas   = self._an_card("VENTAS PERÍODO",   "$ 0",       "#4CAF50")
-        self._an_lbl_ganancia = self._an_card("GANANCIA ESTIMADA","$ 0",       "#C9A84C")
-        self._an_lbl_margen   = self._an_card("MARGEN BRUTO",     "0 %",       "#2196F3")
+        self._an_lbl_compras  = self._an_card("COMPRAS TOTALES",  "$ 0",  "#FF9800")
+        self._an_lbl_ventas   = self._an_card("VENTAS PERÍODO",   "$ 0",  "#4CAF50")
+        self._an_lbl_ganancia = self._an_card("GANANCIA ESTIMADA","$ 0",  "#C9A84C")
+        self._an_lbl_margen   = self._an_card("MARGEN BRUTO",     "0 %",  "#2196F3")
         lay.addLayout(self.an_cards_row)
 
-        # ── Splitter: tabla + gráfico ──
-        split = QHBoxLayout()
+        # ── Tabla por proveedor (a todo el ancho) ──
+        lbl_tabla = QLabel("📊  Detalle por proveedor  —  doble clic para ver en el gráfico")
+        lbl_tabla.setStyleSheet("color:#AAAAAA; font-size:9pt; background:transparent;")
+        lay.addWidget(lbl_tabla)
 
-        # Tabla por proveedor
         self.an_tabla = QTableWidget(0, 4)
         self.an_tabla.setHorizontalHeaderLabels(
             ["Proveedor", "Compras", "Facturas", "Deuda pendiente"])
@@ -982,17 +990,24 @@ class CuentasProveedorWidget(QWidget):
         self.an_tabla.setAlternatingRowColors(True)
         self.an_tabla.verticalHeader().setVisible(False)
         self.an_tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        split.addWidget(self.an_tabla)
+        self.an_tabla.setMinimumHeight(200)
+        self.an_tabla.cellDoubleClicked.connect(self._an_doble_clic_proveedor)
+        lay.addWidget(self.an_tabla)
 
-        # Canvas gráfico línea de tiempo
+        # ── Gráfico debajo (a todo el ancho) ──
+        self._an_titulo_grafico = QLabel("📈  Compras vs. Ventas por mes — todos los proveedores")
+        self._an_titulo_grafico.setStyleSheet("color:#AAAAAA; font-size:9pt; background:transparent;")
+        lay.addWidget(self._an_titulo_grafico)
+
         if HAS_MATPLOTLIB:
-            self.an_canvas = _GraficoMini(width=6, height=3.5)
-            split.addWidget(self.an_canvas, 1)
+            self.an_canvas = _GraficoMini(width=10, height=4)
+            self.an_canvas.setMinimumHeight(300)
+            lay.addWidget(self.an_canvas)
         else:
-            split.addWidget(QLabel("Instalá matplotlib para ver el gráfico"), 1)
+            lay.addWidget(QLabel("Instalá matplotlib para ver el gráfico"))
 
-        lay.addLayout(split, 1)
-        return w
+        lay.addStretch()
+        return outer
 
     def _an_card(self, titulo: str, valor: str, color: str) -> QLabel:
         card = QFrame()
@@ -1004,17 +1019,16 @@ class CuentasProveedorWidget(QWidget):
         lbl_t = QLabel(titulo)
         lbl_t.setObjectName("card_titulo")
         lbl_v = QLabel(valor)
-        lbl_v.setStyleSheet(f"font-size:17pt;font-weight:800;color:{color};")
+        lbl_v.setStyleSheet(f"font-size:17pt;font-weight:800;color:{color};background:transparent;")
         cl.addWidget(lbl_t)
         cl.addWidget(lbl_v)
         self.an_cards_row.addWidget(card)
         self.an_cards_row.addStretch()
         return lbl_v
 
-    def _cargar_analisis(self):
+    def _cargar_analisis(self, prov_id=None):
         desde     = self.an_date_desde.date().toString("yyyy-MM-dd")
         hasta     = self.an_date_hasta.date().toString("yyyy-MM-dd")
-        prov_id   = self.an_cmb_prov.currentData()
         datos     = db.compras_por_periodo(desde, hasta, prov_id)
 
         por_prov  = datos["por_proveedor"]
@@ -1031,14 +1045,16 @@ class CuentasProveedorWidget(QWidget):
         self._an_lbl_compras.setText(f"$ {compras_total:,.0f}")
         self._an_lbl_ventas.setText(f"$ {ventas_total:,.0f}")
         self._an_lbl_ganancia.setStyleSheet(
-            f"font-size:17pt;font-weight:800;color:{gcolor};")
+            f"font-size:17pt;font-weight:800;color:{gcolor};background:transparent;")
         self._an_lbl_ganancia.setText(f"$ {ganancia:,.0f}")
         self._an_lbl_margen.setText(f"{margen:.1f} %")
 
         # Tabla por proveedor
         self.an_tabla.setRowCount(len(por_prov))
         for i, p in enumerate(por_prov):
-            self.an_tabla.setItem(i, 0, QTableWidgetItem(p["proveedor_nombre"] or "Sin nombre"))
+            it_n = QTableWidgetItem(p["proveedor_nombre"] or "Sin nombre")
+            it_n.setData(Qt.ItemDataRole.UserRole, p["proveedor_id"])
+            self.an_tabla.setItem(i, 0, it_n)
             it_c = QTableWidgetItem(f"$ {p['compras_total'] or 0:,.2f}")
             it_c.setForeground(QColor("#FF9800"))
             it_c.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -1053,11 +1069,38 @@ class CuentasProveedorWidget(QWidget):
             self.an_tabla.setItem(i, 3, it_d)
             self.an_tabla.setRowHeight(i, 36)
 
-        # Gráfico
+        # Gráfico para todos
+        self._an_titulo_grafico.setText("📈  Compras vs. Ventas por mes — todos los proveedores")
+        self._dibujar_grafico_analisis(por_mes, ventas_mes)
+
+    def _an_doble_clic_proveedor(self, row: int, col: int):
+        """Doble clic en tabla: filtra el gráfico para ese proveedor."""
+        it = self.an_tabla.item(row, 0)
+        if it is None:
+            return
+        prov_id   = it.data(Qt.ItemDataRole.UserRole)
+        prov_name = it.text()
+        desde = self.an_date_desde.date().toString("yyyy-MM-dd")
+        hasta = self.an_date_hasta.date().toString("yyyy-MM-dd")
+        datos = db.compras_por_periodo(desde, hasta, prov_id)
+        self._an_titulo_grafico.setText(
+            f"📈  Compras vs. Ventas por mes — {prov_name}")
+        self._dibujar_grafico_analisis(datos["por_mes"], datos["ventas_mes"])
+
+    def _dibujar_grafico_analisis(self, por_mes, ventas_mes):
         if not HAS_MATPLOTLIB:
             return
 
-        # Meses únicos ordenados
+        MESES = ["Ene","Feb","Mar","Abr","May","Jun",
+                 "Jul","Ago","Sep","Oct","Nov","Dic"]
+
+        def fmt_mes(m):
+            try:
+                y, mo = m.split("-")
+                return f"{MESES[int(mo)-1]} {y[2:]}"
+            except Exception:
+                return m
+
         todos_meses = sorted(set(
             [r["mes"] for r in por_mes] + [r["mes"] for r in ventas_mes]))
         if not todos_meses:
@@ -1065,7 +1108,6 @@ class CuentasProveedorWidget(QWidget):
             self.an_canvas.draw()
             return
 
-        # Totales de compras por mes (suma de todos los proveedores)
         compras_vals = np.array([
             sum(r["compras_total"] or 0 for r in por_mes if r["mes"] == m)
             for m in todos_meses], dtype=float)
@@ -1073,15 +1115,6 @@ class CuentasProveedorWidget(QWidget):
             [next((r["ventas_total"] or 0 for r in ventas_mes if r["mes"] == m), 0)
              for m in todos_meses], dtype=float)
 
-        # Etiquetas de mes legibles (abrev): "2026-04" → "Abr 26"
-        MESES = ["Ene","Feb","Mar","Abr","May","Jun",
-                 "Jul","Ago","Sep","Oct","Nov","Dic"]
-        def fmt_mes(m):
-            try:
-                y, mo = m.split("-")
-                return f"{MESES[int(mo)-1]} {y[2:]}"
-            except Exception:
-                return m
         etiquetas = [fmt_mes(m) for m in todos_meses]
 
         self.an_canvas.fig.clear()
@@ -1097,7 +1130,6 @@ class CuentasProveedorWidget(QWidget):
         bars_v = ax.bar(xs + w/2, ventas_vals,  w,
                         color="#4CAF50", alpha=0.9, label="🟢 Ventas")
 
-        # Etiquetas $ encima de cada barra
         max_val = max(np.max(compras_vals), np.max(ventas_vals)) if len(todos_meses) else 1
         for bar in list(bars_c) + list(bars_v):
             h = bar.get_height()
@@ -1112,15 +1144,11 @@ class CuentasProveedorWidget(QWidget):
         ax.yaxis.set_major_formatter(
             matplotlib.ticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
         ax.set_ylim(0, max_val * 1.2 if max_val > 0 else 1)
-        ax.set_title("Compras vs. Ventas por mes",
-                     color="#F5F5F5", fontsize=11, fontweight="bold", pad=10)
         ax.spines[:].set_color("#333")
         ax.set_axisbelow(True)
         ax.yaxis.grid(True, color="#2E2E2E", linewidth=0.7)
-
         ax.legend(loc="upper left", fontsize=9, facecolor="#2A2A2A",
                   edgecolor="#444", labelcolor="#F5F5F5", framealpha=0.9)
-
         self.an_canvas.fig.tight_layout()
         self.an_canvas.draw()
 
