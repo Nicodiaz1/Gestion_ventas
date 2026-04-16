@@ -118,6 +118,65 @@ Vinoteca/
 
 ---
 
+## 🚢 Publicar una nueva versión
+
+Estas son las instrucciones para sacar una release que compile el `.exe` en GitHub Actions y quede disponible para que la app detecte la actualización.
+
+### Pasos
+
+**1. Actualizá la versión en `version.py`**
+
+```python
+# version.py
+VERSION_ACTUAL = "2.1.0"   # ← cambiá este número
+```
+
+Seguí el formato `MAYOR.MENOR.PARCHE`:
+- `PARCHE` (+0.0.1): bugfixes menores
+- `MENOR` (+0.1.0): features nuevas sin romper nada
+- `MAYOR` (+1.0.0): cambios grandes o incompatibles
+
+**2. Hacé commit y tagged push**
+
+```bash
+git add .
+git commit -m "v2.1.0 - descripción del cambio"
+git tag v2.1.0
+git push
+git push --tags
+```
+
+> El tag **debe empezar con `v`** (ej: `v2.1.0`). El workflow de GitHub Actions solo se dispara con tags que matcheen `v*`.
+
+**3. Qué pasa automáticamente**
+
+Al pushear el tag, GitHub Actions:
+1. Levanta una máquina Windows
+2. Instala Python 3.11 + dependencias
+3. Compila el `.exe` con PyInstaller
+4. Lo empaqueta en `Vinoteca-Windows.zip`
+5. Crea el Release en GitHub con ese zip adjunto
+
+Podés ver el progreso en: `https://github.com/Nicodiaz1/Gestion_ventas/actions`
+
+**4. La app detecta la actualización**
+
+Al abrir la app, compara `VERSION_ACTUAL` contra el último tag publicado en GitHub Releases. Si hay una versión nueva, muestra el botón de actualización al usuario.
+
+### Corregir un tag equivocado
+
+Si pusheaste un tag con error y querés reemplazarlo:
+
+```bash
+git tag -d v2.1.0              # borrá el tag local
+git push origin :refs/tags/v2.1.0  # borrá el tag remoto
+# corregí lo que sea necesario
+git tag v2.1.0
+git push --tags
+```
+
+---
+
 ## 🔮 Funcionalidades futuras planeadas
 
 - [ ] Facturación electrónica (AFIP)
