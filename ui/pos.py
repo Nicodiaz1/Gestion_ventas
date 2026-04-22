@@ -524,10 +524,12 @@ class CarritoWidget(QWidget):
                     producto = v
                     break
         if producto:
-            # En lugar de insertar la etiqueta completa, dejar SOLO el nombre
+            # Evitar carreras con la inserción automática del completer y con Enter.
+            # Marcamos _completando para que _procesar_escaneo ignore eventos inmediatos,
+            # y programamos la escritura del nombre al siguiente ciclo de eventos.
             nombre = producto.get("nombre") or ""
-            # Poner el nombre en el campo de búsqueda para que Enter lo procese
-            self.scan_input.setText(nombre)
+            self._completando = True
+            QTimer.singleShot(0, lambda: self.scan_input.setText(nombre))
             # Cerrar popup del completer si está abierto
             try:
                 popup = self._completer.popup()
@@ -536,6 +538,8 @@ class CarritoWidget(QWidget):
             except Exception:
                 pass
             QTimer.singleShot(0, lambda: self.scan_input.setFocus())
+            # Liberar el flag poco después para permitir procesar Enter del usuario
+            QTimer.singleShot(150, lambda: setattr(self, "_completando", False))
             return
 
     def _procesar_escaneo(self):

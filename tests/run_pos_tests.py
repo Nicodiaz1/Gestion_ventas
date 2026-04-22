@@ -55,6 +55,10 @@ def run():
     carrito._sugerencia_elegida(etiqueta)
     # Tras elegir una sugerencia debería quedar SOLO el nombre en el campo
     app.processEvents()
+    import time
+    # Esperar un poco para que el QTimer que libera _completando se ejecute
+    time.sleep(0.2)
+    app.processEvents()
     assert carrito.scan_input.text().strip() == product['nombre'], "La sugerencia no dejó solo el nombre en el campo"
     # Ahora simular Enter para agregar
     carrito._procesar_escaneo()
