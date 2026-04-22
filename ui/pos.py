@@ -469,8 +469,15 @@ class CarritoWidget(QWidget):
         completer.setMaxVisibleItems(10)
         completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self.scan_input.setCompleter(completer)
+        # Evitar que el completer inserte la etiqueta completa en el QLineEdit.
+        # Nosotros controlamos qué texto queda (ej: solo el nombre).
+        try:
+            completer.setInsertPolicy(QCompleter.InsertPolicy.NoInsert)
+        except Exception:
+            # Compatibilidad: si la enum no existe en esta versión, ignorar
+            pass
         self.scan_input.textChanged.connect(self._actualizar_sugerencias)
-        completer.activated.connect(self._sugerencia_elegida)
+        completer.activated[str].connect(self._sugerencia_elegida)
         self._completer = completer
 
     def _actualizar_sugerencias(self, texto: str):
@@ -492,31 +499,62 @@ class CarritoWidget(QWidget):
             self._completer_model.setStringList([])
             return
         resultados = db.buscar_por_nombre(texto)
-        self._sugerencias_cache = {
-            p["nombre"]: dict(p) for p in resultados
-        }
-        etiquetas = [
-            f"{p['nombre']}  |  ${p['precio_venta']:.2f}  |  Stock: {p['stock_actual']}"
-            for p in resultados
-        ]
+        # Mapear etiquetas únicas (incluyen id) a los productos para evitar colisiones
+        self._sugerencias_cache = {}
+        etiquetas = []
+        for p in resultados:
+            etiqueta = f"{p['id']}|{p['nombre']}  |  ${p['precio_venta']:.2f}  |  Stock: {p['stock_actual']}"
+            self._sugerencias_cache[etiqueta] = dict(p)
+            etiquetas.append(etiqueta)
         self._completer_model.setStringList(etiquetas)
 
     def _sugerencia_elegida(self, texto: str):
         """El usuario eligió una sugerencia del dropdown."""
-        nombre = texto.split("  |  ")[0].strip()
-        producto = self._sugerencias_cache.get(nombre)
+        # Intentar recuperar por la etiqueta exacta (incluye id)
+        producto = self._sugerencias_cache.get(texto)
+        if not producto:
+            # Fallback: extraer nombre y buscar en los valores cacheados
+            nombre = texto
+            if '|' in nombre:
+                # formato: "id|Nombre  |  $..."
+                nombre = nombre.split('|', 1)[-1]
+            nombre = nombre.split("  |  ")[0].strip()
+            for v in self._sugerencias_cache.values():
+                if v.get("nombre") == nombre:
+                    producto = v
+                    break
         if producto:
-            self._completando = True
-            self._agregar_al_carrito(producto)
-            self.scan_input.clear()
-            QTimer.singleShot(0, lambda: setattr(self, "_completando", False))
+            # En lugar de insertar la etiqueta completa, dejar SOLO el nombre
+            nombre = producto.get("nombre") or ""
+            # Poner el nombre en el campo de búsqueda para que Enter lo procese
+            self.scan_input.setText(nombre)
+            # Cerrar popup del completer si está abierto
+            try:
+                popup = self._completer.popup()
+                if popup:
+                    popup.hide()
+            except Exception:
+                pass
+            QTimer.singleShot(0, lambda: self.scan_input.setFocus())
+            return
 
     def _procesar_escaneo(self):
         if self._completando:
             return
-        codigo = self.scan_input.text().strip()
-        if not codigo:
+        entrada = self.scan_input.text().strip()
+        if not entrada:
             return
+        # Normalizar si la entrada viene de una etiqueta del completer
+        codigo = entrada
+        if '|' in codigo and '  |  ' in codigo:
+            # formato: "id|Nombre  |  $precio  |  Stock: X"
+            try:
+                # quitar prefijo id|
+                codigo = codigo.split('|', 1)[1].split("  |  ")[0].strip()
+            except Exception:
+                codigo = codigo.split("  |  ")[0].strip()
+        elif '  |  ' in codigo:
+            codigo = codigo.split("  |  ")[0].strip()
         self.scan_input.clear()
         # 1) Intentar código de barras
         producto = db.buscar_por_codigo(codigo)
@@ -550,6 +588,10 @@ class CarritoWidget(QWidget):
     # ── Carrito ───────────────────────────────────────────────
 
     def _agregar_al_carrito(self, producto: dict):
+        # Validación defensiva
+        if not producto or "id" not in producto:
+            QMessageBox.critical(self, "Error producto", "Producto inválido: falta id")
+            return
         # Si ya está en el carrito, solo sumar cantidad
         for item in self.carrito:
             if item.producto_id == producto["id"] and item.lote_id is None:
@@ -562,6 +604,12 @@ class CarritoWidget(QWidget):
 
         lote_id = None
         cosecha = None
+
+        # Si hay exactamente 1 lote, asignarlo automáticamente
+        if len(lotes) == 1:
+            lote_sel = lotes[0]
+            lote_id = lote_sel["id"]
+            cosecha = lote_sel.get("cosecha")
 
         if len(lotes) > 1:
             # Mostrar selector de lote
