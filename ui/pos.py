@@ -479,6 +479,9 @@ class CarritoWidget(QWidget):
         self.scan_input.textChanged.connect(self._actualizar_sugerencias)
         completer.activated[str].connect(self._sugerencia_elegida)
         self._completer = completer
+        self._barcode_debounce = QTimer(self)
+        self._barcode_debounce.setSingleShot(True)
+        self._barcode_debounce.timeout.connect(self._procesar_escaneo)
 
     def _actualizar_sugerencias(self, texto: str):
         """Actualiza el modelo del completer solo cuando hay letras.
@@ -490,15 +493,25 @@ class CarritoWidget(QWidget):
             resultados = db.buscar_por_codigo(texto)
             if len(resultados) == 1:
                 # Única coincidencia: agregar al instante
+                self._barcode_debounce.stop()
                 self._completando = True
                 self._agregar_al_carrito(dict(resultados[0]))
                 self.scan_input.clear()
                 QTimer.singleShot(0, lambda: setattr(self, "_completando", False))
                 return
             if len(resultados) > 1:
-                # Múltiples productos con el mismo código: esperar Enter para mostrar selector
+                # Múltiples productos con el mismo código: ocultar popup y disparar automáticamente
+                self._completer_model.setStringList([])
+                try:
+                    popup = self._completer.popup()
+                    if popup:
+                        popup.hide()
+                except Exception:
+                    pass
+                self._barcode_debounce.start(150)
                 return
         # Si es numérico sin coincidencia, o muy corto: no mostrar sugerencias de nombre
+        self._barcode_debounce.stop()
         if not texto or texto.isdigit() or len(texto) < 2:
             self._completer_model.setStringList([])
             return
