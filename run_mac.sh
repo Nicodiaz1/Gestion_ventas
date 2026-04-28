@@ -1,7 +1,9 @@
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PYQT6="$DIR/.venv/lib/python3.14/site-packages/PyQt6/Qt6"
+PYTHON="$DIR/.venv/bin/python"
+PYQT6="$("$PYTHON" -c "import PyQt6, os; print(os.path.join(os.path.dirname(PyQt6.__file__), 'Qt6'))")"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$PYQT6/plugins/platforms"
 export QT_PLUGIN_PATH="$PYQT6/plugins"
+unset QT_DEBUG_PLUGINS
 cd "$DIR"
-exec "$DIR/.venv/bin/python3.14" "$DIR/main.py" "$@"
+exec "$PYTHON" "$DIR/main.py" "$@"

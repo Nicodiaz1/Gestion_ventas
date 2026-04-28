@@ -312,6 +312,24 @@ class DialogoProducto(QDialog):
             else:
                 return
 
+        # Advertir si el código ya pertenece a otro producto (códigos compartidos entre variantes)
+        if codigo and not sin_codigo:
+            mi_id = self.producto["id"] if self.producto else -1
+            existentes = db.buscar_por_codigo(codigo)
+            otros = [p for p in existentes if p["id"] != mi_id]
+            if otros:
+                nombres = "\n".join(f"  • {p['nombre']}" for p in otros)
+                resp = QMessageBox.question(
+                    self, "Código compartido",
+                    f"El código <b>{codigo}</b> ya pertenece a:\n{nombres}\n\n"
+                    "Al escanear ese código en el POS, el sistema va a pedir elegir "
+                    "cuál de los productos vender.\n\n"
+                    "¿Querés guardarlo igual?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if resp != QMessageBox.StandardButton.Yes:
+                    return
+
         datos = {
             "nombre": nombre,
             "codigo_barras": None if sin_codigo else codigo,
@@ -683,9 +701,35 @@ class DialogoCargaStock(QDialog):
         if not codigo:
             return
         self.scan_input.clear()
-        producto = db.buscar_por_codigo(codigo)
-        if producto:
-            self._agregar_producto(dict(producto))
+        resultados = db.buscar_por_codigo(codigo)
+        if len(resultados) == 1:
+            self._agregar_producto(dict(resultados[0]))
+        elif len(resultados) > 1:
+            # Varios productos comparten el código: mostrar selector
+            from PyQt6.QtWidgets import QDialog as _QD, QVBoxLayout as _VL, QListWidget as _LW, QHBoxLayout as _HL, QPushButton as _PB, QLabel as _Lbl
+            dlg = _QD(self)
+            dlg.setWindowTitle(f"Seleccionar producto — código {codigo}")
+            dlg.setMinimumWidth(420)
+            dlg.setModal(True)
+            lay = _VL(dlg)
+            lay.setContentsMargins(16, 14, 16, 14)
+            lay.addWidget(_Lbl(f"El código <b>{codigo}</b> pertenece a varios productos:"))
+            lista = _LW()
+            for p in resultados:
+                lista.addItem(f"{p['nombre']}  |  Stock: {p['stock_actual']}")
+            lista.setCurrentRow(0)
+            lista.itemDoubleClicked.connect(lambda _: dlg.accept())
+            lay.addWidget(lista)
+            row = _HL()
+            btn_ok = _PB("Seleccionar")
+            btn_ok.clicked.connect(dlg.accept)
+            btn_no = _PB("Cancelar")
+            btn_no.clicked.connect(dlg.reject)
+            row.addWidget(btn_ok)
+            row.addWidget(btn_no)
+            lay.addLayout(row)
+            if dlg.exec():
+                self._agregar_producto(dict(resultados[lista.currentRow()]))
         else:
             QMessageBox.warning(self, "No encontrado",
                                 f"Código '{codigo}' no existe.\n"

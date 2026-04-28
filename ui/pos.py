@@ -487,12 +487,16 @@ class CarritoWidget(QWidget):
         texto = texto.strip()
         # Si es todo numérico: buscar coincidencia exacta de código de barras
         if texto.isdigit() and len(texto) >= 3:
-            producto = db.buscar_por_codigo(texto)
-            if producto:
+            resultados = db.buscar_por_codigo(texto)
+            if len(resultados) == 1:
+                # Única coincidencia: agregar al instante
                 self._completando = True
-                self._agregar_al_carrito(dict(producto))
+                self._agregar_al_carrito(dict(resultados[0]))
                 self.scan_input.clear()
                 QTimer.singleShot(0, lambda: setattr(self, "_completando", False))
+                return
+            if len(resultados) > 1:
+                # Múltiples productos con el mismo código: esperar Enter para mostrar selector
                 return
         # Si es numérico sin coincidencia, o muy corto: no mostrar sugerencias de nombre
         if not texto or texto.isdigit() or len(texto) < 2:
@@ -561,9 +565,13 @@ class CarritoWidget(QWidget):
             codigo = codigo.split("  |  ")[0].strip()
         self.scan_input.clear()
         # 1) Intentar código de barras
-        producto = db.buscar_por_codigo(codigo)
-        if producto:
-            self._agregar_al_carrito(dict(producto))
+        resultados_codigo = db.buscar_por_codigo(codigo)
+        if len(resultados_codigo) == 1:
+            self._agregar_al_carrito(dict(resultados_codigo[0]))
+            return
+        if len(resultados_codigo) > 1:
+            # Varios productos comparten el mismo código: mostrar selector
+            self._seleccionar_producto_por_codigo(codigo, resultados_codigo)
             return
         # 2) Si hay exactamente 1 coincidencia por nombre, agregar directo
         if not codigo.isdigit():
@@ -582,6 +590,55 @@ class CarritoWidget(QWidget):
             self, "Código no encontrado",
             f"No se encontró: {codigo}\n"
             "Escribí el nombre para ver sugerencias.")
+
+    def _seleccionar_producto_por_codigo(self, codigo: str, productos: list):
+        """Muestra un selector cuando varios productos comparten el mismo código de barras."""
+        from PyQt6.QtWidgets import QListWidget as _QListWidget
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Seleccionar producto — código {codigo}")
+        dlg.setMinimumWidth(460)
+        dlg.setModal(True)
+        lay_dlg = QVBoxLayout(dlg)
+        lay_dlg.setSpacing(10)
+        lay_dlg.setContentsMargins(20, 16, 20, 16)
+
+        lbl = QLabel(
+            f"El código <b>{codigo}</b> corresponde a varios productos.\n"
+            "¿Cuál querés vender?"
+        )
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet("font-size:11pt; color:#F5F5F5;")
+        lay_dlg.addWidget(lbl)
+
+        lista_sel = _QListWidget()
+        for p in productos:
+            lista_sel.addItem(
+                f"{p['nombre']}  |  ${p['precio_venta']:.2f}  |  Stock: {p['stock_actual']}"
+            )
+        lista_sel.setCurrentRow(0)
+        lista_sel.setStyleSheet("font-size:10pt;")
+        lay_dlg.addWidget(lista_sel)
+
+        btn_row = QHBoxLayout()
+        btn_ok = QPushButton("Seleccionar")
+        btn_ok.setStyleSheet(
+            "QPushButton{background:#722F37;color:white;font-weight:700;"
+            "border-radius:6px;padding:6px 16px;}"
+            "QPushButton:hover{background:#8B3A44;}"
+        )
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("btn_secundario")
+        btn_ok.clicked.connect(dlg.accept)
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        lay_dlg.addLayout(btn_row)
+        lista_sel.itemDoubleClicked.connect(lambda _: dlg.accept())
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            idx = lista_sel.currentRow()
+            self._agregar_al_carrito(dict(productos[idx]))
+        QTimer.singleShot(100, self.scan_input.setFocus)
 
     def _abrir_buscador(self):
         dlg = BuscadorProductos(self)

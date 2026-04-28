@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS proveedores (
 -- ── Productos ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS productos (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    codigo_barras   TEXT UNIQUE,          -- NULL para productos sin código
+    codigo_barras   TEXT,                 -- NULL para productos sin código (puede repetirse entre variantes)
     nombre          TEXT NOT NULL,
     descripcion     TEXT,
     categoria_id    INTEGER REFERENCES categorias(id),
@@ -353,6 +353,50 @@ def init_db():
         if "cliente_id" not in cols_ventas2:
             conn.execute("ALTER TABLE ventas ADD COLUMN cliente_id INTEGER REFERENCES clientes(id)")
             print("[DB] Migración: columna cliente_id agregada a ventas.")
+        # Migración: eliminar restricción UNIQUE de codigo_barras (permite variantes con mismo código)
+        tabla_ddl_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='productos'"
+        ).fetchone()
+        if tabla_ddl_row:
+            tabla_ddl = tabla_ddl_row[0] or ""
+            tiene_unique = any(
+                'codigo_barras' in ln and 'UNIQUE' in ln
+                for ln in tabla_ddl.splitlines()
+            )
+            if tiene_unique:
+                conn.executescript("""
+                    PRAGMA foreign_keys = OFF;
+
+                    CREATE TABLE productos_new (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        codigo_barras   TEXT,
+                        nombre          TEXT NOT NULL,
+                        descripcion     TEXT,
+                        categoria_id    INTEGER REFERENCES categorias(id),
+                        proveedor_id    INTEGER REFERENCES proveedores(id),
+                        precio_venta    REAL NOT NULL DEFAULT 0,
+                        precio_costo    REAL DEFAULT 0,
+                        stock_actual    INTEGER NOT NULL DEFAULT 0,
+                        stock_minimo    INTEGER DEFAULT 3,
+                        unidad          TEXT DEFAULT 'unidad',
+                        unidades_por_caja INTEGER DEFAULT 1,
+                        activo          INTEGER DEFAULT 1,
+                        sin_codigo      INTEGER DEFAULT 0,
+                        imagen_path     TEXT,
+                        creado_en       DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        modificado_en   DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    INSERT INTO productos_new SELECT * FROM productos;
+                    DROP TABLE productos;
+                    ALTER TABLE productos_new RENAME TO productos;
+
+                    CREATE INDEX IF NOT EXISTS idx_productos_barras ON productos(codigo_barras);
+                    CREATE INDEX IF NOT EXISTS idx_productos_nombre  ON productos(nombre);
+
+                    PRAGMA foreign_keys = ON;
+                """)
+                print("[DB] Migración: restricción UNIQUE eliminada de codigo_barras (ahora permite variantes).")
     print(f"[DB] Base de datos inicializada en: {DB_PATH}")
 
 
@@ -360,12 +404,12 @@ def init_db():
 #  PRODUCTOS
 # ══════════════════════════════════════════════════════════════
 
-def buscar_por_codigo(codigo_barras: str) -> Optional[sqlite3.Row]:
+def buscar_por_codigo(codigo_barras: str) -> list:
     with get_connection() as conn:
         return conn.execute(
             "SELECT * FROM productos WHERE codigo_barras = ? AND activo = 1",
             (codigo_barras,)
-        ).fetchone()
+        ).fetchall()
 
 
 def buscar_por_nombre(texto: str) -> list:

@@ -32,7 +32,7 @@ def run():
         return []
 
     def stub_buscar_por_codigo(codigo):
-        return product if codigo == product['codigo_barras'] else None
+        return [product] if codigo == product['codigo_barras'] else []
 
     def stub_obtener_lotes_producto(producto_id):
         if producto_id == product['id']:
