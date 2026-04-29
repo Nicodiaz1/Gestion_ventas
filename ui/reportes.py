@@ -1234,11 +1234,11 @@ class ReportesWidget(QWidget):
             btn_del = QPushButton("✕")
             btn_del.setFixedSize(28, 28)
             btn_del.setStyleSheet(
-                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:4px;font-weight:700;}"
+                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:14px;font-weight:700;}"
                 "QPushButton:hover{background:#7F0000;}")
             btn_del.clicked.connect(lambda _, gid=gid: self._fin_eliminar_gasto(gid))
             self.fin_tabla_gastos.setCellWidget(i, 4, btn_del)
-            self.fin_tabla_gastos.setRowHeight(i, 36)
+            self.fin_tabla_gastos.setRowHeight(i, 44)
         self.fin_tabla_gastos.setSortingEnabled(True)
 
     def _fin_eliminar_gasto(self, gasto_id: int):

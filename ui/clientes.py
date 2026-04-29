@@ -189,7 +189,7 @@ class DialogoDetalleCliente(QDialog):
         btn_abonar = QPushButton("💳  Abonar")
         btn_abonar.setStyleSheet(
             "QPushButton{background:#2E7D32;color:white;font-weight:700;"
-            "border-radius:6px;padding:6px 14px;}"
+            "border-radius:20px;padding:6px 14px;}"
             "QPushButton:hover{background:#388E3C;}")
         btn_abonar.clicked.connect(self._registrar_abono)
         abono_row.addWidget(btn_abonar)
@@ -349,7 +349,7 @@ class ClientesWidget(QWidget):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self.tabla_clientes.setColumnWidth(5, 220)
+        self.tabla_clientes.setColumnWidth(5, 260)
         self.tabla_clientes.verticalHeader().setVisible(False)
         self.tabla_clientes.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla_clientes.setAlternatingRowColors(True)
@@ -479,7 +479,7 @@ class ClientesWidget(QWidget):
             btn_ver = QPushButton("👁 Ver")
             btn_ver.setFixedHeight(28)
             btn_ver.setStyleSheet(
-                "QPushButton{background:#1565C0;color:white;border-radius:5px;"
+                "QPushButton{background:#1565C0;color:white;border-radius:14px;"
                 "font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#1976D2;}")
             btn_ver.clicked.connect(lambda _, cd=cdict: self._abrir_detalle(cd["id"]))
@@ -488,24 +488,23 @@ class ClientesWidget(QWidget):
             btn_edit = QPushButton("✏ Editar")
             btn_edit.setFixedHeight(28)
             btn_edit.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:5px;"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:14px;"
                 "color:#F5F5F5;font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#3C3C3C;}")
             btn_edit.clicked.connect(lambda _, cd=cdict: self._editar_cliente(cd))
             acc_lay.addWidget(btn_edit)
 
-            btn_del = QPushButton("🗑")
+            btn_del = QPushButton("🗑 Borrar")
             btn_del.setFixedHeight(28)
-            btn_del.setFixedWidth(36)
             btn_del.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:5px;"
-                "font-size:9pt;}"
+                "QPushButton{background:#7F0000;color:white;border-radius:14px;"
+                "font-size:9pt;padding:0 10px;}"
                 "QPushButton:hover{background:#B71C1C;}")
             btn_del.clicked.connect(lambda _, cd=cdict: self._eliminar_cliente(cd))
             acc_lay.addWidget(btn_del)
 
             self.tabla_clientes.setCellWidget(i, 5, acc)
-            self.tabla_clientes.setRowHeight(i, 42)
+            self.tabla_clientes.setRowHeight(i, 50)
 
     def _cargar_tab_deuda(self):
         con_deuda = [c for c in self._todos_los_clientes
@@ -544,14 +543,14 @@ class ClientesWidget(QWidget):
             btn_ver = QPushButton("👁 Ver cuenta")
             btn_ver.setFixedHeight(28)
             btn_ver.setStyleSheet(
-                "QPushButton{background:#1565C0;color:white;border-radius:5px;"
+                "QPushButton{background:#1565C0;color:white;border-radius:14px;"
                 "font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#1976D2;}")
             btn_ver.clicked.connect(lambda _, cd=cdict: self._abrir_detalle(cd["id"]))
             acc_lay.addWidget(btn_ver)
 
             self.tabla_deuda.setCellWidget(i, 4, acc)
-            self.tabla_deuda.setRowHeight(i, 42)
+            self.tabla_deuda.setRowHeight(i, 50)
 
     def _tab_changed(self, idx):
         if idx in (0, 1):

@@ -10,12 +10,20 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QSplitter, QSizePolicy,
     QTabWidget, QTabBar, QInputDialog, QStackedWidget, QCompleter
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QStringListModel, QLocale
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QStringListModel, QLocale, QObject, QEvent
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QColor, QDoubleValidator
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import database as db
+
+
+class _SelectAllFilter(QObject):
+    """Event filter que selecciona todo el texto al recibir foco."""
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.FocusIn:
+            QTimer.singleShot(0, obj.selectAll)
+        return False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -213,7 +221,7 @@ class CarritoWidget(QWidget):
         self.btn_asignar_cliente.setFixedHeight(24)
         self.btn_asignar_cliente.setFixedWidth(90)
         self.btn_asignar_cliente.setStyleSheet(
-            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:12px;"
             "color:#C9A84C;font-size:8pt;}"
             "QPushButton:hover{background:#3C3C3C;}")
         self.btn_asignar_cliente.clicked.connect(self._asignar_cliente)
@@ -335,6 +343,7 @@ class CarritoWidget(QWidget):
                 "color:#F5F5F5;}"
                 "QLineEdit:focus{border:2px solid #C9A84C;}"
             )
+            txt.installEventFilter(_SelectAllFilter(txt))
             txt.textEdited.connect(
                 lambda text, t=txt, v=valor: self._on_monto_editado(t, v))
 
@@ -356,7 +365,7 @@ class CarritoWidget(QWidget):
         btn_extraccion.setMinimumHeight(34)
         btn_extraccion.setStyleSheet(
             "QPushButton{background:#4A3728;color:#FFCC80;font-weight:700;"
-            "border-radius:6px;font-size:9pt;border:1px solid #7D5A45;}"
+            "border-radius:17px;font-size:9pt;border:1px solid #7D5A45;}"
             "QPushButton:hover{background:#5D4037;}"
             "QPushButton:pressed{background:#3E2723;}"
         )
@@ -376,7 +385,7 @@ class CarritoWidget(QWidget):
         btn_cobrar.setMinimumHeight(52)
         btn_cobrar.setStyleSheet(
             "QPushButton { background-color: #2E7D32; font-size:15pt;"
-            " font-weight:900; border-radius:10px; color:white; }"
+            " font-weight:900; border-radius:26px; color:white; }"
             "QPushButton:hover { background-color: #388E3C; }"
             "QPushButton:pressed { background-color: #1B5E20; }"
         )
@@ -433,7 +442,7 @@ class CarritoWidget(QWidget):
         self.lbl_cliente.setStyleSheet(f"color:{color}; font-size:9pt; padding:2px 0;")
         self.btn_asignar_cliente.setText("✕ Quitar")
         self.btn_asignar_cliente.setStyleSheet(
-            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:12px;"
             "color:#F44336;font-size:8pt;}"
             "QPushButton:hover{background:#3C3C3C;}")
         self.btn_asignar_cliente.clicked.disconnect()
@@ -447,7 +456,7 @@ class CarritoWidget(QWidget):
         self.lbl_cliente.setStyleSheet("color:#555; font-size:9pt; padding:2px 0;")
         self.btn_asignar_cliente.setText("+ Asignar")
         self.btn_asignar_cliente.setStyleSheet(
-            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:12px;"
             "color:#C9A84C;font-size:8pt;}"
             "QPushButton:hover{background:#3C3C3C;}")
         self.btn_asignar_cliente.clicked.disconnect()
@@ -636,7 +645,7 @@ class CarritoWidget(QWidget):
         btn_ok = QPushButton("Seleccionar")
         btn_ok.setStyleSheet(
             "QPushButton{background:#722F37;color:white;font-weight:700;"
-            "border-radius:6px;padding:6px 16px;}"
+            "border-radius:20px;padding:6px 16px;}"
             "QPushButton:hover{background:#8B3A44;}"
         )
         btn_cancel = QPushButton("Cancelar")
@@ -800,7 +809,7 @@ class CarritoWidget(QWidget):
             btn_del.setFixedSize(30, 30)
             btn_del.setStyleSheet(
                 "QPushButton{background:#B71C1C;color:white;"
-                "border-radius:4px;font-weight:700;}"
+                "border-radius:15px;font-weight:700;}"
                 "QPushButton:hover{background:#C62828;}")
             btn_del.clicked.connect(
                 lambda _, idx=i: self._quitar_item(idx))
@@ -1577,7 +1586,7 @@ class ConfirmacionVenta(QDialog):
         btn_ok = QPushButton("✅  Confirmar cobro")
         btn_ok.setMinimumHeight(50)
         btn_ok.setStyleSheet(
-            "QPushButton{background:#2E7D32;font-size:13pt;font-weight:700;color:white;border-radius:8px;}"
+            "QPushButton{background:#2E7D32;font-size:13pt;font-weight:700;color:white;border-radius:25px;}"
             "QPushButton:hover{background:#388E3C;}"
         )
         btn_ok.clicked.connect(self.accept)

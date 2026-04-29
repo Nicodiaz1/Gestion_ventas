@@ -282,7 +282,7 @@ class ConfigPanel(QWidget):
             btn_del = QPushButton("🗑 Borrar")
             btn_del.setFixedHeight(26)
             btn_del.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:4px;"
+                "QPushButton{background:#7F0000;color:white;border-radius:13px;"
                 "font-size:9pt;padding:0 6px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
@@ -293,7 +293,7 @@ class ConfigPanel(QWidget):
             acc_lay.setContentsMargins(4, 2, 4, 2)
             acc_lay.addWidget(btn_del)
             self.tabla_cats.setCellWidget(i, 3, acc_w)
-            self.tabla_cats.setRowHeight(i, 34)
+            self.tabla_cats.setRowHeight(i, 44)
 
     def _eliminar_categoria(self, cat: dict):
         resp = QMessageBox.question(
@@ -342,7 +342,7 @@ class ConfigPanel(QWidget):
             btn_edit = QPushButton("✏ Editar")
             btn_edit.setFixedHeight(26)
             btn_edit.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:4px;"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:13px;"
                 "color:#F5F5F5;font-size:9pt;padding:0 6px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
@@ -350,7 +350,7 @@ class ConfigPanel(QWidget):
             btn_del = QPushButton("🗑 Borrar")
             btn_del.setFixedHeight(26)
             btn_del.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:4px;"
+                "QPushButton{background:#7F0000;color:white;border-radius:13px;"
                 "font-size:9pt;padding:0 6px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
@@ -358,7 +358,7 @@ class ConfigPanel(QWidget):
             acc_lay.addWidget(btn_edit)
             acc_lay.addWidget(btn_del)
             self.tabla_prov.setCellWidget(i, 4, acc_w)
-            self.tabla_prov.setRowHeight(i, 36)
+            self.tabla_prov.setRowHeight(i, 44)
 
     def _nuevo_proveedor(self):
         self._dialogo_proveedor()
