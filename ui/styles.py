@@ -14,6 +14,11 @@ QMainWindow, QDialog, QWidget {
     font-size: 10pt;
 }
 
+/* ── Contenedores de botones dentro de celdas de tabla ─── */
+QTableWidget QWidget {
+    background-color: transparent;
+}
+
 /* ── Sidebar ───────────────────────────────────────────── */
 #sidebar {
     background-color: #111111;
@@ -55,19 +60,20 @@ QPushButton {
     background-color: #722F37;
     color: white;
     border: none;
-    border-radius: 8px;
-    padding: 7px 16px;
+    border-radius: 20px;
+    padding: 8px 20px;
     font-weight: 600;
     font-size: 10pt;
 }
 QPushButton:hover   { background-color: #8B3A44; }
 QPushButton:pressed { background-color: #5C2530; }
-QPushButton:disabled { background-color: #444; color: #888; }
+QPushButton:disabled { background-color: #444; color: #888; border-radius: 20px; }
 
 QPushButton#btn_secundario {
     background-color: #2C2C2C;
     border: 1px solid #555;
     color: #F5F5F5;
+    border-radius: 20px;
 }
 QPushButton#btn_secundario:hover { background-color: #3C3C3C; }
 
@@ -89,7 +95,7 @@ QPushButton#btn_peligro:hover { background-color: #C62828; }
 QPushButton#btn_grande {
     font-size: 14pt;
     padding: 16px 32px;
-    border-radius: 10px;
+    border-radius: 28px;
 }
 
 QPushButton#btn_periodo_activo {
@@ -108,6 +114,7 @@ QPushButton#btn_secundario_compacto {
     color: #F5F5F5;
     padding: 6px 14px;
     font-size: 11pt;
+    border-radius: 20px;
 }
 QPushButton#btn_secundario_compacto:hover { background-color: #3C3C3C; }
 
@@ -236,16 +243,37 @@ QLabel#precio_total {
 }
 
 /* ── Tags de medio de pago ─────────────────────────────── */
-QPushButton#mp_efectivo    { background-color: #1B5E20; }
-QPushButton#mp_debito      { background-color: #0D47A1; }
-QPushButton#mp_credito     { background-color: #4A148C; }
-QPushButton#mp_transferencia{ background-color: #E65100; }
-QPushButton#mp_qr          { background-color: #006064; }
+QPushButton#mp_efectivo,
+QPushButton#mp_debito,
+QPushButton#mp_credito,
+QPushButton#mp_transferencia,
+QPushButton#mp_qr,
+QPushButton#mp_fiado {
+    border-radius: 18px;
+    color: white;
+    border: none;
+    font-weight: 700;
+    font-size: 10pt;
+    padding: 8px 20px;
+}
+QPushButton#mp_efectivo      { background-color: #1B5E20; }
+QPushButton#mp_efectivo:hover{ background-color: #2E7D32; }
+QPushButton#mp_debito        { background-color: #0D47A1; }
+QPushButton#mp_debito:hover  { background-color: #1565C0; }
+QPushButton#mp_credito       { background-color: #4A148C; }
+QPushButton#mp_credito:hover { background-color: #6A1FA5; }
+QPushButton#mp_transferencia       { background-color: #E65100; }
+QPushButton#mp_transferencia:hover { background-color: #F57C00; }
+QPushButton#mp_qr            { background-color: #006064; }
+QPushButton#mp_qr:hover      { background-color: #00838F; }
+QPushButton#mp_fiado         { background-color: #5D2B2B; }
+QPushButton#mp_fiado:hover   { background-color: #7D3B3B; }
 QPushButton#mp_efectivo:checked,
 QPushButton#mp_debito:checked,
 QPushButton#mp_credito:checked,
 QPushButton#mp_transferencia:checked,
-QPushButton#mp_qr:checked  { border: 3px solid #C9A84C; }
+QPushButton#mp_qr:checked,
+QPushButton#mp_fiado:checked { border: 3px solid #C9A84C; }
 
 /* ── ScrollBar ─────────────────────────────────────────── */
 QScrollBar:vertical {
@@ -257,12 +285,31 @@ QScrollBar::handle:vertical {
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 
 /* ── Tabs ──────────────────────────────────────────────── */
-QTabWidget::pane  { border: 1px solid #444; border-radius: 8px; }
-QTabBar::tab {
-    background: #2C2C2C; color: #AAAAAA;
-    padding: 8px 20px; border-radius: 6px 6px 0 0;
+QTabWidget::pane  { border: none; }
+QTabBar {
+    background: transparent;
+    border: none;
 }
-QTabBar::tab:selected { background: #722F37; color: white; font-weight: 700; }
+QTabBar::tab {
+    background: #252525;
+    color: #AAAAAA;
+    padding: 9px 22px;
+    border-radius: 10px;
+    margin-right: 4px;
+    border: 1px solid #333;
+    font-size: 10pt;
+}
+QTabBar::tab:selected {
+    background: #722F37;
+    color: white;
+    font-weight: 700;
+    border-color: #8B3A44;
+}
+QTabBar::tab:hover:!selected {
+    background: #2C2C2C;
+    color: #E0E0E0;
+    border-color: #555;
+}
 
 /* ── DateEdit ──────────────────────────────────────────── */
 QDateEdit {

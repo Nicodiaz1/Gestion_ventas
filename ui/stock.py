@@ -445,7 +445,7 @@ class DialogoAjusteStock(QDialog):
         btn_ok = QPushButton("✅  Confirmar ajuste")
         btn_ok.setStyleSheet(
             "QPushButton{background:#E65100;color:white;font-weight:700;"
-            "border-radius:6px;padding:8px 20px;}"
+            "border-radius:20px;padding:8px 20px;}"
             "QPushButton:hover{background:#F57C00;}"
         )
         btn_ok.clicked.connect(self.accept)
@@ -684,7 +684,7 @@ class DialogoCargaStock(QDialog):
         btn_ok = QPushButton("✅  Confirmar ingreso")
         btn_ok.setStyleSheet(
             "QPushButton{background:#2E7D32;font-size:12pt;font-weight:700;"
-            "color:white;border-radius:8px;padding:10px 24px;}"
+            "color:white;border-radius:24px;padding:10px 24px;}"
             "QPushButton:hover{background:#388E3C;}"
         )
         btn_ok.clicked.connect(self._confirmar)
@@ -849,7 +849,7 @@ class DialogoCargaStock(QDialog):
             btn_clear_v.setFixedSize(22, 22)
             btn_clear_v.setToolTip("Quitar fecha de vencimiento")
             btn_clear_v.setStyleSheet(
-                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:4px;"
+                "QPushButton{background:#5C0000;color:#FF8A80;border-radius:11px;"
                 "font-size:9pt;font-weight:700;border:none;}"
                 "QPushButton:hover{background:#7F0000;}")
             btn_clear_v.clicked.connect(lambda _, dv=date_v, md=min_date: dv.setDate(md))
@@ -1265,7 +1265,6 @@ class StockWidget(QWidget):
 
         # Tabs: Catálogo | Sin rotación | Historial
         tabs = QTabWidget()
-        tabs.setDocumentMode(True)
 
         # Tab 1: Catálogo
         tab_catalogo = QWidget()
@@ -1300,7 +1299,7 @@ class StockWidget(QWidget):
         self.tabla_productos.setColumnWidth(5, 90)
         self.tabla_productos.setColumnWidth(6, 80)
         self.tabla_productos.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-        self.tabla_productos.setColumnWidth(7, 215)
+        self.tabla_productos.setColumnWidth(7, 250)
         self.tabla_productos.setAlternatingRowColors(False)
         self.tabla_productos.setItemDelegate(FilaColorDelegate(self.tabla_productos))
         self.tabla_productos.verticalHeader().setVisible(False)
@@ -1555,7 +1554,7 @@ class StockWidget(QWidget):
             btn_acc.setMinimumWidth(95)
             btn_acc.setToolTip("Editar • Agregar stock • Ajuste • Ver lotes")
             btn_acc.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:16px;"
                 "color:#F5F5F5;font-size:10pt;padding:0 12px;}"
                 "QPushButton:hover{background:#3C3C3C;border-color:#888;}"
             )
@@ -1588,7 +1587,7 @@ class StockWidget(QWidget):
             btn_del.setMinimumWidth(85)
             btn_del.setToolTip("Eliminar producto")
             btn_del.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:6px;"
+                "QPushButton{background:#7F0000;color:white;border-radius:16px;"
                 "font-size:10pt;padding:0 12px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
@@ -1598,7 +1597,7 @@ class StockWidget(QWidget):
             acc_lay.addWidget(btn_acc)
             acc_lay.addWidget(btn_del)
             self.tabla_productos.setCellWidget(i, 7, acc_widget)
-            self.tabla_productos.setRowHeight(i, 48)
+            self.tabla_productos.setRowHeight(i, 54)
 
         self.tabla_productos.setSortingEnabled(True)
 
@@ -1729,7 +1728,7 @@ class StockWidget(QWidget):
             btn_edit_h.setFixedHeight(26)
             btn_edit_h.setStyleSheet(
                 "QPushButton{background:#2C2C2C;border:1px solid #555;"
-                "border-radius:4px;color:#F5F5F5;font-size:9pt;padding:0 6px;}"
+                "border-radius:13px;color:#F5F5F5;font-size:9pt;padding:0 6px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
             btn_edit_h.clicked.connect(
@@ -1738,7 +1737,7 @@ class StockWidget(QWidget):
             btn_del_h = QPushButton("🗑 Borrar")
             btn_del_h.setFixedHeight(26)
             btn_del_h.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:4px;"
+                "QPushButton{background:#7F0000;color:white;border-radius:13px;"
                 "font-size:9pt;padding:0 6px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
@@ -1748,7 +1747,7 @@ class StockWidget(QWidget):
             acc_lay.addWidget(btn_edit_h)
             acc_lay.addWidget(btn_del_h)
             self.tabla_historial.setCellWidget(i, 6, acc_w)
-            self.tabla_historial.setRowHeight(i, 36)
+            self.tabla_historial.setRowHeight(i, 44)
 
     def _editar_movimiento_historial(self, mdict: dict):
         from PyQt6.QtWidgets import QInputDialog
@@ -1899,7 +1898,7 @@ class StockWidget(QWidget):
         btn_aplicar_pct = QPushButton("Aplicar %")
         btn_aplicar_pct.setStyleSheet(
             "QPushButton{background:#1565C0;color:white;font-weight:600;"
-            "border-radius:5px;padding:5px 12px;}"
+            "border-radius:20px;padding:5px 12px;}"
             "QPushButton:hover{background:#1976D2;}")
         btn_aplicar_pct.clicked.connect(self._prec_aplicar_pct)
         ctrl_lay.addWidget(btn_aplicar_pct)
@@ -1908,7 +1907,7 @@ class StockWidget(QWidget):
         btn_confirmar = QPushButton("✅  Confirmar cambios")
         btn_confirmar.setStyleSheet(
             "QPushButton{background:#2E7D32;color:white;font-weight:700;"
-            "border-radius:6px;padding:6px 18px;}"
+            "border-radius:20px;padding:6px 18px;}"
             "QPushButton:hover{background:#388E3C;}")
         btn_confirmar.clicked.connect(self._prec_confirmar)
         ctrl_lay.addWidget(btn_confirmar)
@@ -2230,7 +2229,7 @@ class StockWidget(QWidget):
         btn_ok = QPushButton("✅  Aplicar")
         btn_ok.setStyleSheet(
             "QPushButton{background:#1565C0;color:white;font-weight:700;"
-            "border-radius:6px;padding:8px 20px;}"
+            "border-radius:20px;padding:8px 20px;}"
             "QPushButton:hover{background:#1976D2;}")
         btn_ok.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_cancel)
@@ -2313,7 +2312,7 @@ class StockWidget(QWidget):
         btn_ok = QPushButton("✅  Agregar stock")
         btn_ok.setStyleSheet(
             "QPushButton{background:#2E7D32;color:white;font-weight:700;"
-            "border-radius:6px;padding:8px 20px;}"
+            "border-radius:20px;padding:8px 20px;}"
             "QPushButton:hover{background:#388E3C;}"
         )
         btn_ok.clicked.connect(dlg.accept)

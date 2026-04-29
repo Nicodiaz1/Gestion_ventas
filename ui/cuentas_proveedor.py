@@ -532,8 +532,8 @@ class CuentasProveedorWidget(QWidget):
         hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Vencimiento
         hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)              # Acciones
         tabla.setColumnHidden(3, True)    # Descripción oculta
-        tabla.setColumnWidth(0, 36)       # Revisar
-        tabla.setColumnWidth(8, 230)      # Acciones
+        tabla.setColumnWidth(0, 44)       # Revisar
+        tabla.setColumnWidth(8, 260)      # Acciones
         tabla.cellDoubleClicked.connect(
             lambda row, col, t=tabla: self._mostrar_descripcion(t, row, col))
         tabla.itemChanged.connect(self._on_revisar_changed)
@@ -658,7 +658,7 @@ class CuentasProveedorWidget(QWidget):
                 btn_pagar_v = QPushButton("= Pagar")
                 btn_pagar_v.setFixedHeight(28)
                 btn_pagar_v.setStyleSheet(
-                    "QPushButton{background:#2E7D32;color:white;border-radius:5px;"
+                    "QPushButton{background:#2E7D32;color:white;border-radius:14px;"
                     "font-size:9pt;padding:0 10px;}"
                     "QPushButton:hover{background:#388E3C;}"
                 )
@@ -669,7 +669,7 @@ class CuentasProveedorWidget(QWidget):
             btn_edit_v = QPushButton("✏ Editar")
             btn_edit_v.setFixedHeight(28)
             btn_edit_v.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:5px;"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:14px;"
                 "color:#F5F5F5;font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
@@ -679,7 +679,7 @@ class CuentasProveedorWidget(QWidget):
             btn_del_v = QPushButton("🗑 Borrar")
             btn_del_v.setFixedHeight(28)
             btn_del_v.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:5px;"
+                "QPushButton{background:#7F0000;color:white;border-radius:14px;"
                 "font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
@@ -687,7 +687,7 @@ class CuentasProveedorWidget(QWidget):
             acc_lay_v.addWidget(btn_del_v)
 
             self.tabla_por_vencer.setCellWidget(i, 8, acc_v)
-            self.tabla_por_vencer.setRowHeight(i, 42)
+            self.tabla_por_vencer.setRowHeight(i, 50)
 
         n = len(por_vencer)
         if n:
@@ -779,7 +779,7 @@ class CuentasProveedorWidget(QWidget):
         btn_cerrar = QPushButton("Cerrar")
         btn_cerrar.setFixedHeight(34)
         btn_cerrar.setStyleSheet(
-            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:6px;"
+            "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:17px;"
             "color:#F5F5F5;font-size:10pt;padding:0 20px;}"
             "QPushButton:hover{background:#3C3C3C;}"
         )
@@ -863,7 +863,7 @@ class CuentasProveedorWidget(QWidget):
                 btn_pagar = QPushButton("= Pagar")
                 btn_pagar.setFixedHeight(28)
                 btn_pagar.setStyleSheet(
-                    "QPushButton{background:#2E7D32;color:white;border-radius:5px;"
+                    "QPushButton{background:#2E7D32;color:white;border-radius:14px;"
                     "font-size:9pt;padding:0 10px;}"
                     "QPushButton:hover{background:#388E3C;}"
                 )
@@ -874,7 +874,7 @@ class CuentasProveedorWidget(QWidget):
             btn_edit = QPushButton("✏ Editar")
             btn_edit.setFixedHeight(28)
             btn_edit.setStyleSheet(
-                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:5px;"
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:14px;"
                 "color:#F5F5F5;font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#3C3C3C;}"
             )
@@ -884,7 +884,7 @@ class CuentasProveedorWidget(QWidget):
             btn_del = QPushButton("🗑 Borrar")
             btn_del.setFixedHeight(28)
             btn_del.setStyleSheet(
-                "QPushButton{background:#7F0000;color:white;border-radius:5px;"
+                "QPushButton{background:#7F0000;color:white;border-radius:14px;"
                 "font-size:9pt;padding:0 8px;}"
                 "QPushButton:hover{background:#B71C1C;}"
             )
@@ -892,7 +892,7 @@ class CuentasProveedorWidget(QWidget):
             acc_lay.addWidget(btn_del)
 
             self.tabla_facturas.setCellWidget(i, 8, acc)
-            self.tabla_facturas.setRowHeight(i, 42)
+            self.tabla_facturas.setRowHeight(i, 50)
 
     def _cargar_resumen(self):
         provs = db.resumen_deuda_proveedores()
@@ -1007,7 +1007,7 @@ class CuentasProveedorWidget(QWidget):
         btn_ver = QPushButton("📊  Ver")
         btn_ver.setStyleSheet(
             "QPushButton{background:#722F37;color:white;font-weight:700;"
-            "border-radius:6px;padding:6px 16px;}"
+            "border-radius:20px;padding:6px 16px;}"
             "QPushButton:hover{background:#8B3A44;}")
         btn_ver.clicked.connect(self._cargar_analisis)
         ctrl.addWidget(btn_ver)
