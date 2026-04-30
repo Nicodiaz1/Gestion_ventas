@@ -134,10 +134,10 @@ class ItemCarrito:
                  lote_id: int = None, cosecha: int = None):
         self.producto_id      = producto["id"]
         self.nombre           = producto["nombre"]
-        self.precio_unit      = float(producto["precio_venta"])
+        self.precio_unit      = float(producto["precio_venta"] or 0)
         self.precio_costo     = float(producto.get("precio_costo") or 0)
         self.cantidad         = cantidad
-        self.stock_actual     = producto["stock_actual"]
+        self.stock_actual     = int(producto["stock_actual"] or 0)
         self.lote_id          = lote_id    # None = FIFO automático
         self.cosecha          = cosecha    # para mostrar en carrito
         self.subtotal_override: float | None = None  # precio promo manual
@@ -222,7 +222,7 @@ class CarritoWidget(QWidget):
         self.btn_asignar_cliente.setFixedWidth(90)
         self.btn_asignar_cliente.setStyleSheet(
             "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:12px;"
-            "color:#C9A84C;font-size:8pt;}"
+            "color:#C9A84C;font-size:8pt;padding:0 8px;}"
             "QPushButton:hover{background:#3C3C3C;}")
         self.btn_asignar_cliente.clicked.connect(self._asignar_cliente)
         cliente_row.addWidget(self.btn_asignar_cliente)
@@ -382,10 +382,10 @@ class CarritoWidget(QWidget):
         lay_der.addWidget(linea)
 
         btn_cobrar = QPushButton("✅  COBRAR  (F12)")
-        btn_cobrar.setMinimumHeight(52)
+        btn_cobrar.setMinimumHeight(44)
         btn_cobrar.setStyleSheet(
             "QPushButton { background-color: #2E7D32; font-size:15pt;"
-            " font-weight:900; border-radius:26px; color:white; }"
+            " font-weight:900; border-radius:22px; color:white; }"
             "QPushButton:hover { background-color: #388E3C; }"
             "QPushButton:pressed { background-color: #1B5E20; }"
         )
@@ -443,7 +443,7 @@ class CarritoWidget(QWidget):
         self.btn_asignar_cliente.setText("✕ Quitar")
         self.btn_asignar_cliente.setStyleSheet(
             "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:12px;"
-            "color:#F44336;font-size:8pt;}"
+            "color:#F44336;font-size:8pt;padding:0 8px;}"
             "QPushButton:hover{background:#3C3C3C;}")
         self.btn_asignar_cliente.clicked.disconnect()
         self.btn_asignar_cliente.clicked.connect(self._quitar_cliente)
@@ -457,7 +457,7 @@ class CarritoWidget(QWidget):
         self.btn_asignar_cliente.setText("+ Asignar")
         self.btn_asignar_cliente.setStyleSheet(
             "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:12px;"
-            "color:#C9A84C;font-size:8pt;}"
+            "color:#C9A84C;font-size:8pt;padding:0 8px;}"
             "QPushButton:hover{background:#3C3C3C;}")
         self.btn_asignar_cliente.clicked.disconnect()
         self.btn_asignar_cliente.clicked.connect(self._asignar_cliente)
@@ -671,6 +671,15 @@ class CarritoWidget(QWidget):
     # ── Carrito ───────────────────────────────────────────────
 
     def _agregar_al_carrito(self, producto: dict):
+        try:
+            self.__agregar_al_carrito_impl(producto)
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self, "Error al agregar producto",
+                                 f"No se pudo agregar '{producto.get('nombre', '?')}' al carrito:\n{e}\n\n"
+                                 + traceback.format_exc())
+
+    def __agregar_al_carrito_impl(self, producto: dict):
         # Validación defensiva
         if not producto or "id" not in producto:
             QMessageBox.critical(self, "Error producto", "Producto inválido: falta id")
@@ -692,7 +701,7 @@ class CarritoWidget(QWidget):
         if len(lotes) == 1:
             lote_sel = lotes[0]
             lote_id = lote_sel["id"]
-            cosecha = lote_sel.get("cosecha")
+            cosecha = lote_sel["cosecha"]
 
         if len(lotes) > 1:
             # Mostrar selector de lote
@@ -700,7 +709,8 @@ class CarritoWidget(QWidget):
             for l in lotes:
                 venc = l["fecha_vencimiento"]
                 SENTINEL = "2000-01-01"
-                venc_txt = f"  —  vence {venc[:10]}" if (venc and venc[:10] != SENTINEL) else ""
+                venc_str = str(venc)[:10] if venc is not None else ""
+                venc_txt = f"  —  vence {venc_str}" if (venc_str and venc_str != SENTINEL) else ""
                 if l["cosecha"]:
                     opciones.append(f"Cosecha {l['cosecha']}  ({l['cantidad']} en stock{venc_txt})")
                 else:
@@ -813,7 +823,12 @@ class CarritoWidget(QWidget):
                 "QPushButton:hover{background:#C62828;}")
             btn_del.clicked.connect(
                 lambda _, idx=i: self._quitar_item(idx))
-            self.tabla.setCellWidget(i, 4, btn_del)
+            cell_del = QWidget()
+            cell_del_lay = QHBoxLayout(cell_del)
+            cell_del_lay.setContentsMargins(0, 0, 0, 0)
+            cell_del_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cell_del_lay.addWidget(btn_del)
+            self.tabla.setCellWidget(i, 4, cell_del)
             self.tabla.setRowHeight(i, 44)
         self._actualizar_total()
 
