@@ -128,7 +128,7 @@ Estas son las instrucciones para sacar una release que compile el `.exe` en GitH
 
 ```python
 # version.py
-VERSION_ACTUAL = "2.1.0"   # ← cambiá este número
+VERSION_ACTUAL = "2.0.6"   # ← cambiá este número
 ```
 
 Seguí el formato `MAYOR.MENOR.PARCHE`:

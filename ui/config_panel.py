@@ -108,7 +108,7 @@ class ConfigPanel(QWidget):
         self.tabla_cats.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tabla_cats.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.tabla_cats.setColumnWidth(0, 50)
-        self.tabla_cats.setColumnWidth(3, 100)
+        self.tabla_cats.setColumnWidth(3, 160)
         self.tabla_cats.setAlternatingRowColors(True)
         self.tabla_cats.verticalHeader().setVisible(False)
         self.tabla_cats.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -279,6 +279,19 @@ class ConfigPanel(QWidget):
             self.tabla_cats.setItem(i, 0, QTableWidgetItem(str(cid)))
             self.tabla_cats.setItem(i, 1, QTableWidgetItem(c["nombre"]))
             self.tabla_cats.setItem(i, 2, QTableWidgetItem(c["descripcion"] or ""))
+            acc_w = QWidget()
+            acc_lay = QHBoxLayout(acc_w)
+            acc_lay.setContentsMargins(4, 2, 4, 2)
+            acc_lay.setSpacing(4)
+            btn_edit = QPushButton("✏ Editar")
+            btn_edit.setFixedHeight(26)
+            btn_edit.setStyleSheet(
+                "QPushButton{background:#2C2C2C;border:1px solid #555;border-radius:13px;"
+                "color:#F5F5F5;font-size:9pt;padding:0 6px;}"
+                "QPushButton:hover{background:#3C3C3C;}"
+            )
+            btn_edit.clicked.connect(
+                lambda _, cat=dict(c): self._editar_categoria(cat))
             btn_del = QPushButton("🗑 Borrar")
             btn_del.setFixedHeight(26)
             btn_del.setStyleSheet(
@@ -288,9 +301,7 @@ class ConfigPanel(QWidget):
             )
             btn_del.clicked.connect(
                 lambda _, cat=dict(c): self._eliminar_categoria(cat))
-            acc_w = QWidget()
-            acc_lay = QHBoxLayout(acc_w)
-            acc_lay.setContentsMargins(4, 2, 4, 2)
+            acc_lay.addWidget(btn_edit)
             acc_lay.addWidget(btn_del)
             self.tabla_cats.setCellWidget(i, 3, acc_w)
             self.tabla_cats.setRowHeight(i, 44)
@@ -313,6 +324,37 @@ class ConfigPanel(QWidget):
             )
         else:
             self._cargar_categorias()
+
+    def _editar_categoria(self, cat: dict):
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Editar categoría")
+        dlg.setMinimumWidth(360)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 20, 20, 20)
+        form = QFormLayout()
+        txt_nombre = QLineEdit(cat["nombre"])
+        txt_desc   = QLineEdit(cat.get("descripcion") or "")
+        form.addRow("Nombre:", txt_nombre)
+        form.addRow("Descripción:", txt_desc)
+        lay.addLayout(form)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+        txt_nombre.returnPressed.connect(txt_desc.setFocus)
+        txt_nombre.selectAll()
+        txt_nombre.setFocus()
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        nombre_nuevo = txt_nombre.text().strip()
+        if not nombre_nuevo:
+            QMessageBox.warning(self, "Nombre vacío", "El nombre no puede estar vacío.")
+            return
+        db.actualizar_categoria(cat["id"], nombre_nuevo, txt_desc.text())
+        self._cargar_categorias()
 
     def _nueva_categoria(self):
         from PyQt6.QtWidgets import QInputDialog

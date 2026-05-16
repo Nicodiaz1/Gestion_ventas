@@ -547,15 +547,43 @@ def _registrar_movimiento_conn(conn, producto_id, tipo, cantidad,
     """, (producto_id, tipo, cantidad, stock_anterior, stock_nuevo, motivo, ref_id))
 
 
-def agregar_stock(producto_id: int, cantidad: int, motivo: str = "Ingreso de mercadería") -> int:
+def agregar_stock(producto_id: int, cantidad: int, motivo: str = "Ingreso de mercadería",
+                  precio_costo_nuevo: float = None, precio_venta_nuevo: float = None) -> int:
+    """
+    Agrega stock al producto. Si se provee precio_costo_nuevo, calcula el Costo
+    Promedio Ponderado (CPP) entre el stock existente y el nuevo ingreso y actualiza
+    precio_costo. Si se provee precio_venta_nuevo, actualiza precio_venta.
+    """
     with get_connection() as conn:
-        row = conn.execute("SELECT stock_actual FROM productos WHERE id = ?", (producto_id,)).fetchone()
+        row = conn.execute(
+            "SELECT stock_actual, precio_costo FROM productos WHERE id = ?",
+            (producto_id,)).fetchone()
         if not row:
             raise ValueError(f"Producto {producto_id} no existe")
         stock_ant = row["stock_actual"]
         stock_nuevo = stock_ant + cantidad
-        conn.execute("UPDATE productos SET stock_actual = ?, modificado_en = ? WHERE id = ?",
-                     (stock_nuevo, datetime.now().isoformat(), producto_id))
+
+        extra_sets, extra_vals = [], []
+        if precio_costo_nuevo is not None and precio_costo_nuevo > 0:
+            costo_act = float(row["precio_costo"] or 0)
+            if stock_ant > 0 and costo_act > 0:
+                cpp = (stock_ant * costo_act + cantidad * precio_costo_nuevo) / stock_nuevo
+            else:
+                cpp = precio_costo_nuevo
+            extra_sets.append("precio_costo = ?")
+            extra_vals.append(round(cpp, 2))
+        if precio_venta_nuevo is not None and precio_venta_nuevo > 0:
+            extra_sets.append("precio_venta = ?")
+            extra_vals.append(round(precio_venta_nuevo, 2))
+
+        set_clause = "stock_actual = ?, modificado_en = ?"
+        vals = [stock_nuevo, datetime.now().isoformat()]
+        if extra_sets:
+            set_clause += ", " + ", ".join(extra_sets)
+            vals.extend(extra_vals)
+        vals.append(producto_id)
+
+        conn.execute(f"UPDATE productos SET {set_clause} WHERE id = ?", vals)
         _registrar_movimiento_conn(conn, producto_id, "entrada", cantidad,
                                    stock_ant, stock_nuevo, motivo)
         return stock_nuevo
@@ -609,19 +637,25 @@ def registrar_venta(items: list, medio_pago: str, descuento: float = 0,
                     cuotas: int = 1, notas: str = "",
                     recargo_pct: float = 0,
                     pagos: list = None,
-                    cliente_id: int = None) -> int:
+                    cliente_id: int = None,
+                    total_override: float = None) -> int:
     """
     items: [{"producto_id": int, "cantidad": int, "precio_unit": float}, ...]
     recargo_pct: porcentaje de recargo (+) o descuento (-). Ej: 15 = +15%, -10 = -10%
     pagos: lista para pago dividido: [{"metodo": "efectivo", "monto": 21000}, ...]
            Si se provee, medio_pago se sobreescribe con "mixto" (si hay más de uno).
+    total_override: si se provee, se usa como total final en lugar de recalcular
+                    desde recargo_pct (evita diferencias por redondeo del porcentaje).
     Retorna el ID de la venta creada.
     """
     import json as _json
     ahora = datetime.now()
     subtotal = sum(i["cantidad"] * i["precio_unit"] for i in items)
     base  = max(0.0, subtotal - descuento)
-    total = base * (1 + recargo_pct / 100)
+    if total_override is not None:
+        total = round(total_override, 2)
+    else:
+        total = round(base * (1 + recargo_pct / 100), 2)
 
     # ── Resolver medio_pago y pagos_json ──────────────────────
     pagos_json = None
@@ -918,6 +952,13 @@ def reporte_caja_diaria(desde: str, hasta: str) -> list:
 def obtener_categorias() -> list:
     with get_connection() as conn:
         return conn.execute("SELECT * FROM categorias ORDER BY nombre").fetchall()
+
+
+def actualizar_categoria(categoria_id: int, nombre: str, descripcion: str = "") -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE categorias SET nombre = ?, descripcion = ? WHERE id = ?",
+            (nombre.strip(), (descripcion or "").strip(), categoria_id))
 
 
 def eliminar_categoria(categoria_id: int) -> int:

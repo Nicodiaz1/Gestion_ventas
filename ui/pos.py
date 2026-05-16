@@ -257,7 +257,7 @@ class CarritoWidget(QWidget):
         self.spin_porcentaje = QDoubleSpinBox()
         self.spin_porcentaje.setRange(-50, 100)
         self.spin_porcentaje.setDecimals(1)
-        self.spin_porcentaje.setSingleStep(5)
+        self.spin_porcentaje.setSingleStep(0.5)
         self.spin_porcentaje.setSuffix(" %")
         self.spin_porcentaje.setValue(0)
         self.spin_porcentaje.setToolTip(
@@ -992,9 +992,7 @@ class CarritoWidget(QWidget):
         self._actualizar_pendiente()
 
     def _total_actual(self) -> float:
-        subtotal   = sum(i.subtotal for i in self.carrito)
-        porcentaje = self.spin_porcentaje.value()
-        return subtotal * (1 + porcentaje / 100)
+        return self.spin_total_final.value()
 
     def _get_pagos(self) -> list:
         """Devuelve lista de pagos activos (monto > 0)."""
@@ -1137,7 +1135,8 @@ class CarritoWidget(QWidget):
                     items_db, medio_db,
                     descuento=0, recargo_pct=porcentaje,
                     pagos=pagos_db,
-                    cliente_id=self._cliente_id)
+                    cliente_id=self._cliente_id,
+                    total_override=total)
 
                 # Registrar movimientos de fiado
                 if self._cliente_id:

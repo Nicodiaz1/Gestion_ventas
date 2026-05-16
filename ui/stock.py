@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QDialog, QFormLayout, QComboBox, QSpinBox,
     QDoubleSpinBox, QAbstractItemView, QTabWidget, QTextEdit,
     QFrame, QCheckBox, QSizePolicy, QDateEdit, QStyledItemDelegate, QMenu,
-    QScrollArea
+    QScrollArea, QGridLayout
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QDate
 from PyQt6.QtGui import QColor, QFont
@@ -618,9 +618,11 @@ class DialogoCargaStock(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("📥  Carga de Stock")
-        self.setMinimumSize(820, 520)
+        self.setMinimumSize(860, 580)
         self.setModal(True)
-        self.items: dict = {}    # producto_id → {"producto", "cantidad", "modo"}
+        self.items: dict = {}    # producto_id → {"producto", "cantidad", "modo", ...}
+        self._spins_costo_preview:  dict = {}   # pid → QDoubleSpinBox costo
+        self._spins_precio_preview: dict = {}   # pid → QDoubleSpinBox precio venta
         self._build_ui()
         QTimer.singleShot(100, self.scan_input.setFocus)
 
@@ -649,7 +651,7 @@ class DialogoCargaStock(QDialog):
         scan_row.addWidget(btn_buscar)
         lay.addLayout(scan_row)
 
-        # Tabla de carga — 7 columnas
+        # Tabla de carga — 8 columnas
         self.tabla = QTableWidget(0, 8)
         self.tabla.setHorizontalHeaderLabels([
             "Código", "Producto", "Stock\nactual", "Modo de ingreso",
@@ -662,10 +664,31 @@ class DialogoCargaStock(QDialog):
         self.tabla.setColumnWidth(4, 90)
         self.tabla.setColumnWidth(5, 110)
         self.tabla.setColumnWidth(6, 90)
-        self.tabla.setColumnWidth(7, 120)
+        self.tabla.setColumnWidth(7, 130)
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         lay.addWidget(self.tabla, 1)
+
+        # ── Panel de precios (aparece al agregar productos) ───
+        self.frame_precios = QFrame()
+        self.frame_precios.setFrameShape(QFrame.Shape.StyledPanel)
+        self.frame_precios.setStyleSheet(
+            "QFrame{background:#111;border:1px solid #333;border-radius:8px;}")
+        self.frame_precios.setVisible(False)
+        fp_lay = QVBoxLayout(self.frame_precios)
+        fp_lay.setContentsMargins(14, 10, 14, 10)
+        fp_lay.setSpacing(8)
+        lbl_sec = QLabel("💰  Actualización de precios  —  dejá el costo en 0 para no modificar")
+        lbl_sec.setStyleSheet("color:#C9A84C; font-weight:700; font-size:10pt;")
+        fp_lay.addWidget(lbl_sec)
+        self.precios_grid = QGridLayout()
+        self.precios_grid.setSpacing(8)
+        self.precios_grid.setColumnMinimumWidth(0, 170)
+        self.precios_grid.setColumnMinimumWidth(1, 140)
+        self.precios_grid.setColumnMinimumWidth(2, 130)
+        self.precios_grid.setColumnMinimumWidth(3, 140)
+        fp_lay.addLayout(self.precios_grid)
+        lay.addWidget(self.frame_precios)
 
         # Fila de resumen + motivo
         resumen_row = QHBoxLayout()
@@ -746,14 +769,22 @@ class DialogoCargaStock(QDialog):
         pid = producto["id"]
         upc = producto.get("unidades_por_caja") or 1
         if pid in self.items:
+            # Guardar valores del preview antes de reconstruir
+            if pid in self._spins_costo_preview:
+                self.items[pid]["costo_nuevo"] = self._spins_costo_preview[pid].value()
+            if pid in self._spins_precio_preview:
+                self.items[pid]["precio_venta_nuevo"] = self._spins_precio_preview[pid].value()
             self.items[pid]["cantidad"] += 1
         else:
             modo_default = "caja" if upc > 1 else "unidad"
             self.items[pid] = {
                 "producto": producto, "cantidad": 1, "modo": modo_default,
-                "lote": {"cosecha": None, "fecha_vencimiento": None, "notas": ""}
+                "lote": {"cosecha": None, "fecha_vencimiento": None, "notas": ""},
+                "costo_nuevo": float(producto.get("precio_costo") or 0),
+                "precio_venta_nuevo": None,
             }
         self._refrescar_tabla()
+        self._actualizar_preview()
         QTimer.singleShot(50, self.scan_input.setFocus)
 
     def _total_unidades(self, entry: dict) -> int:
@@ -861,6 +892,7 @@ class DialogoCargaStock(QDialog):
             cell_lay.addWidget(date_v)
             cell_lay.addWidget(btn_clear_v)
             self.tabla.setCellWidget(i, 7, cell_venc)
+
             self.tabla.setRowHeight(i, 56)
 
         # Resumen total
@@ -908,21 +940,133 @@ class DialogoCargaStock(QDialog):
             f"📊  {n} producto(s)  →  {total_u} unidades en total a ingresar" if n else ""
         )
 
+    def _actualizar_preview(self):
+        """Reconstruye el panel de precios debajo de la tabla."""
+        # Guardar valores actuales antes de limpiar
+        for pid, spin in self._spins_costo_preview.items():
+            if pid in self.items:
+                self.items[pid]["costo_nuevo"] = spin.value()
+        for pid, spin in self._spins_precio_preview.items():
+            if pid in self.items:
+                self.items[pid]["precio_venta_nuevo"] = spin.value()
+
+        # Limpiar grid
+        while self.precios_grid.count():
+            item = self.precios_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._spins_costo_preview.clear()
+        self._spins_precio_preview.clear()
+
+        if not self.items:
+            self.frame_precios.setVisible(False)
+            return
+
+        self.frame_precios.setVisible(True)
+
+        # Fila de encabezados
+        for col, txt in enumerate(["Producto", "Costo esta compra", "→ CPP nuevo", "Precio de venta"]):
+            lbl = QLabel(txt)
+            lbl.setStyleSheet("color:#888; font-size:9pt; font-weight:600;")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter if col > 0 else Qt.AlignmentFlag.AlignLeft)
+            self.precios_grid.addWidget(lbl, 0, col)
+
+        for row_i, (pid, entry) in enumerate(self.items.items(), start=1):
+            p = entry["producto"]
+            costo_act    = float(p.get("precio_costo") or 0)
+            precio_vta   = float(p.get("precio_venta") or 0)
+            stock_act    = int(p.get("stock_actual") or 0)
+
+            lbl_nombre = QLabel(p["nombre"])
+            lbl_nombre.setStyleSheet("color:#F5F5F5; font-size:9pt;")
+            self.precios_grid.addWidget(lbl_nombre, row_i, 0)
+
+            spin_costo = QDoubleSpinBox()
+            spin_costo.setRange(0, 99999999)
+            spin_costo.setDecimals(2)
+            spin_costo.setPrefix("$ ")
+            spin_costo.setValue(entry.get("costo_nuevo", costo_act))
+            spin_costo.setToolTip("Costo por unidad de esta compra")
+            spin_costo.setStyleSheet(
+                "QDoubleSpinBox{background:#2C2C2C;color:#C9A84C;"
+                "border:1px solid #555;border-radius:4px;padding:2px 22px 2px 6px;}" + _SPIN_SUBS)
+            self._spins_costo_preview[pid] = spin_costo
+            self.precios_grid.addWidget(spin_costo, row_i, 1)
+
+            lbl_cpp = QLabel("—")
+            lbl_cpp.setStyleSheet("color:#66BB6A; font-weight:700; font-size:10pt;")
+            lbl_cpp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.precios_grid.addWidget(lbl_cpp, row_i, 2)
+
+            precio_guardado = entry.get("precio_venta_nuevo") or precio_vta
+            spin_precio = QDoubleSpinBox()
+            spin_precio.setRange(0, 99999999)
+            spin_precio.setDecimals(2)
+            spin_precio.setPrefix("$ ")
+            spin_precio.setValue(precio_guardado)
+            spin_precio.setToolTip("Podés ajustar el precio de venta antes de confirmar")
+            spin_precio.setStyleSheet(
+                "QDoubleSpinBox{background:#2C2C2C;color:#F5F5F5;"
+                "border:1px solid #555;border-radius:4px;padding:2px 22px 2px 6px;}" + _SPIN_SUBS)
+            self._spins_precio_preview[pid] = spin_precio
+            self.precios_grid.addWidget(spin_precio, row_i, 3)
+
+            def _calc(v, _pid=pid, _lbl=lbl_cpp, _sp=spin_precio,
+                      _ca=costo_act, _pva=precio_vta, _sa=stock_act):
+                cant = self._total_unidades(self.items[_pid]) if _pid in self.items else 1
+                self.items[_pid]["costo_nuevo"] = v
+                if v > 0:
+                    cpp = ((_sa * _ca + cant * v) / (_sa + cant)) if _sa > 0 and _ca > 0 else v
+                    cpp = round(cpp, 2)
+                    _lbl.setText(f"${cpp:,.2f}")
+                    margen = ((_pva - _ca) / _ca) if _ca > 0 and _pva > 0 else 0
+                    sug = round(cpp * (1 + margen), 2)
+                    _sp.blockSignals(True)
+                    _sp.setValue(sug)
+                    _sp.blockSignals(False)
+                else:
+                    _lbl.setText("— (no actualiza)")
+                    _sp.blockSignals(True)
+                    _sp.setValue(_pva)
+                    _sp.blockSignals(False)
+
+            spin_costo.valueChanged.connect(_calc)
+            _calc(spin_costo.value())
+
     def _confirmar(self):
         if not self.items:
             QMessageBox.information(self, "Vacío", "No hay productos para ingresar.")
             return
         motivo = self.txt_motivo.text().strip() or "Ingreso de mercadería"
         total_unidades = sum(self._total_unidades(e) for e in self.items.values())
+        precios_actualizados = 0
         try:
             for pid, entry in self.items.items():
+                p = entry["producto"]
                 unidades_a_agregar = self._total_unidades(entry)
-                upc = entry["producto"].get("unidades_por_caja") or 1
-                if entry["modo"] == "caja" and upc > 1:
-                    detalle_motivo = f"{motivo} ({entry['cantidad']} caja(s) × {upc} unid.)"
-                else:
-                    detalle_motivo = motivo
-                db.agregar_stock(pid, unidades_a_agregar, detalle_motivo)
+                upc = p.get("unidades_por_caja") or 1
+                detalle_motivo = (
+                    f"{motivo} ({entry['cantidad']} caja(s) × {upc} unid.)"
+                    if entry["modo"] == "caja" and upc > 1 else motivo
+                )
+
+                # Leer costo y precio desde los spinboxes del panel de precios
+                spin_c = self._spins_costo_preview.get(pid)
+                costo_nuevo = spin_c.value() if spin_c else 0
+                spin_p = self._spins_precio_preview.get(pid)
+                precio_costo_arg = None
+                precio_venta_arg = None
+                if costo_nuevo > 0:
+                    precio_costo_arg = costo_nuevo
+                    if spin_p and spin_p.value() > 0:
+                        precio_venta_arg = spin_p.value()
+                    precios_actualizados += 1
+
+                db.agregar_stock(
+                    pid, unidades_a_agregar, detalle_motivo,
+                    precio_costo_nuevo=precio_costo_arg,
+                    precio_venta_nuevo=precio_venta_arg,
+                )
                 # Siempre registrar lote para mantener trazabilidad exacta
                 lote = entry.get("lote", {})
                 db.crear_lote(
@@ -932,10 +1076,11 @@ class DialogoCargaStock(QDialog):
                     motivo=detalle_motivo,
                     notas=lote.get("notas", "")
                 )
-            QMessageBox.information(
-                self, "✅  Stock actualizado",
-                f"Se ingresaron {total_unidades} unidades en {len(self.items)} producto(s)."
-            )
+
+            msg = f"Se ingresaron {total_unidades} unidades en {len(self.items)} producto(s)."
+            if precios_actualizados:
+                msg += f"\n💰 Costo promedio y precio de venta actualizados en {precios_actualizados} producto(s)."
+            QMessageBox.information(self, "✅  Stock actualizado", msg)
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -2257,15 +2402,24 @@ class StockWidget(QWidget):
                     f"Precios actualizados ({'+' if pct > 0 else ''}{pct:.1f}%).")
 
     def _agregar_stock_rapido(self, producto: dict):
+        costo_act      = float(producto.get("precio_costo") or 0)
+        precio_vta_act = float(producto.get("precio_venta") or 0)
+        stock_act      = int(producto.get("stock_actual") or 0)
+
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Agregar stock: {producto['nombre']}")
-        dlg.setMinimumWidth(380)
+        dlg.setMinimumWidth(440)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(12)
         lay.setContentsMargins(20, 20, 20, 20)
 
         lay.addWidget(QLabel(f"<b>{producto['nombre']}</b>"))
-        lay.addWidget(QLabel(f"Stock actual: <b>{producto['stock_actual']}</b>"))
+        info_txt = (f"Stock actual: <b>{stock_act}</b>  │  "
+                    f"Costo actual: <b>${costo_act:,.2f}</b>  │  "
+                    f"Precio venta: <b>${precio_vta_act:,.2f}</b>")
+        lbl_info = QLabel(info_txt)
+        lbl_info.setStyleSheet("color:#AAAAAA; font-size:9pt;")
+        lay.addWidget(lbl_info)
 
         linea = QFrame()
         linea.setFrameShape(QFrame.Shape.HLine)
@@ -2305,6 +2459,72 @@ class StockWidget(QWidget):
 
         lay.addLayout(form)
 
+        # ── Sección de costos y precios ───────────────────────
+        linea2 = QFrame()
+        linea2.setFrameShape(QFrame.Shape.HLine)
+        linea2.setStyleSheet("color:#444;")
+        lay.addWidget(linea2)
+
+        lbl_sec = QLabel("💰  Actualización de precios")
+        lbl_sec.setStyleSheet("color:#C9A84C; font-weight:700; font-size:10pt;")
+        lay.addWidget(lbl_sec)
+
+        form2 = QFormLayout()
+        form2.setSpacing(10)
+
+        spin_costo = QDoubleSpinBox()
+        spin_costo.setRange(0, 99999999)
+        spin_costo.setDecimals(2)
+        spin_costo.setPrefix("$ ")
+        spin_costo.setValue(costo_act)
+        spin_costo.setToolTip(
+            "Costo por unidad de ESTA compra. Si es igual al anterior no cambia el promedio.")
+        form2.addRow("Costo por unidad (esta compra):", spin_costo)
+
+        lbl_cpp = QLabel("—")
+        lbl_cpp.setStyleSheet("color:#66BB6A; font-weight:700; font-size:11pt;")
+        form2.addRow("→ Nuevo costo promedio:", lbl_cpp)
+
+        spin_precio = QDoubleSpinBox()
+        spin_precio.setRange(0, 99999999)
+        spin_precio.setDecimals(2)
+        spin_precio.setPrefix("$ ")
+        spin_precio.setValue(precio_vta_act)
+        spin_precio.setToolTip("Podés ajustar el precio de venta antes de guardar.")
+        form2.addRow("Nuevo precio de venta:", spin_precio)
+
+        lbl_margen = QLabel("")
+        lbl_margen.setStyleSheet("color:#888; font-size:9pt;")
+        form2.addRow("", lbl_margen)
+
+        lay.addLayout(form2)
+
+        def _recalcular():
+            cant         = spin.value()
+            costo_compra = spin_costo.value()
+            if costo_compra <= 0:
+                lbl_cpp.setText("— (ingresá el costo para calcular)")
+                lbl_cpp.setStyleSheet("color:#666; font-size:10pt;")
+                lbl_margen.setText("")
+                return
+            if stock_act > 0 and costo_act > 0:
+                cpp = (stock_act * costo_act + cant * costo_compra) / (stock_act + cant)
+            else:
+                cpp = costo_compra
+            cpp = round(cpp, 2)
+            margen = ((precio_vta_act - costo_act) / costo_act) if costo_act > 0 and precio_vta_act > 0 else 0
+            precio_sug = round(cpp * (1 + margen), 2)
+            lbl_cpp.setText(f"${cpp:,.2f}")
+            lbl_cpp.setStyleSheet("color:#66BB6A; font-weight:700; font-size:11pt;")
+            spin_precio.blockSignals(True)
+            spin_precio.setValue(precio_sug)
+            spin_precio.blockSignals(False)
+            lbl_margen.setText(f"Margen mantenido: {margen*100:.1f}%" if margen > 0 else "")
+
+        spin.valueChanged.connect(lambda _: _recalcular())
+        spin_costo.valueChanged.connect(lambda _: _recalcular())
+        _recalcular()
+
         btn_row = QHBoxLayout()
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.setObjectName("btn_secundario")
@@ -2321,11 +2541,17 @@ class StockWidget(QWidget):
         lay.addLayout(btn_row)
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            cantidad  = spin.value()
-            motivo    = txt_motivo.text().strip() or "Ingreso de mercadería"
-            cosecha   = spin_cosecha.value() if spin_cosecha.value() > 0 else None
-            fecha_v   = date_venc.date().toString("yyyy-MM-dd") if chk_venc.isChecked() else None
-            db.agregar_stock(producto["id"], cantidad, motivo)
+            cantidad     = spin.value()
+            motivo       = txt_motivo.text().strip() or "Ingreso de mercadería"
+            cosecha      = spin_cosecha.value() if spin_cosecha.value() > 0 else None
+            fecha_v      = date_venc.date().toString("yyyy-MM-dd") if chk_venc.isChecked() else None
+            costo_compra = spin_costo.value()
+            precio_nuevo = spin_precio.value()
+            db.agregar_stock(
+                producto["id"], cantidad, motivo,
+                precio_costo_nuevo=costo_compra if costo_compra > 0 else None,
+                precio_venta_nuevo=precio_nuevo if precio_nuevo > 0 else None,
+            )
             if cosecha or fecha_v:
                 db.crear_lote(producto["id"], cantidad,
                               cosecha=cosecha, fecha_vencimiento=fecha_v, motivo=motivo)

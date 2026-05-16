@@ -177,18 +177,24 @@ class DialogoFactura(QDialog):
         btn_row.addWidget(self.btn_ok)
         lay.addLayout(btn_row)
 
-        # ── Enter-key navigation: proveedor → n° factura → descripción → monto total → Guardar
+        # ── Enter-key navigation: cada campo avanza al siguiente, el botón Guardar guarda
         self.txt_proveedor.returnPressed.connect(self._proveedor_enter)
         self.txt_numero.returnPressed.connect(self.txt_desc.setFocus)
         self.txt_desc.returnPressed.connect(self.spin_total.setFocus)
-        self.spin_total.installEventFilter(self)
+        self.btn_ok.setAutoDefault(True)
+        for w in (self.spin_total, self.spin_pagado,
+                  self.date_emision, self.date_venc, self.spin_dias_alerta):
+            w.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        if (obj is self.spin_total
-                and event.type() == QEvent.Type.KeyPress
-                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
-            self._guardar()
-            return True
+        if event.type() == QEvent.Type.KeyPress and event.key() in (
+                Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            cadena = [self.spin_total, self.spin_pagado,
+                      self.date_emision, self.date_venc, self.spin_dias_alerta]
+            if obj in cadena:
+                siguiente = cadena[cadena.index(obj) + 1] if obj is not cadena[-1] else self.btn_ok
+                siguiente.setFocus()
+                return True
         return super().eventFilter(obj, event)
 
     def _proveedor_enter(self):
@@ -440,7 +446,6 @@ class CuentasProveedorWidget(QWidget):
         self.cmb_filtro_estado = QComboBox()
         self.cmb_filtro_estado.addItem("Todos los estados", None)
         self.cmb_filtro_estado.addItem("⏳ Pendientes",    "pendiente")
-        self.cmb_filtro_estado.addItem("🔴 Vencidas",       "vencida")
         self.cmb_filtro_estado.addItem("✅ Pagadas",         "pagada")
         self.cmb_filtro_estado.addItem("💙 Saldo a favor",  "saldo_favor")
         self.cmb_filtro_estado.addItem("📌 Por revisar",    "por_revisar")
@@ -472,6 +477,12 @@ class CuentasProveedorWidget(QWidget):
         lay_todas.addLayout(filtro_row)
 
         self.tabla_facturas = self._crear_tabla_facturas()
+        self._sort_col = -1   # columna activa de ordenamiento (-1 = ninguna)
+        self._sort_asc = True
+        hdr_f = self.tabla_facturas.horizontalHeader()
+        hdr_f.setSortIndicatorShown(True)
+        hdr_f.setSectionsClickable(True)
+        hdr_f.sectionClicked.connect(self._ordenar_facturas)
         lay_todas.addWidget(self.tabla_facturas, 1)
         tab_todas.setLayout(lay_todas)
         self.tabs.addTab(tab_todas, "📋  Todas las facturas")
@@ -698,6 +709,20 @@ class CuentasProveedorWidget(QWidget):
             self.lbl_vencer_header.setStyleSheet(
                 "color:#4CAF50; font-weight:700; font-size:10pt; padding:4px 0;")
 
+    def _ordenar_facturas(self, col: int):
+        """Alterna el orden al hacer clic en un header de tabla_facturas."""
+        if col in (0, 3, 8):   # checkbox, descripción oculta, acciones — no sortables
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        self.tabla_facturas.horizontalHeader().setSortIndicator(
+            col,
+            Qt.SortOrder.AscendingOrder if self._sort_asc else Qt.SortOrder.DescendingOrder)
+        self._filtrar_facturas()
+
     def _filtrar_facturas(self):
         estado     = self.cmb_filtro_estado.currentData()
         busqueda   = self.txt_filtro_prov.text().strip().lower()
@@ -788,6 +813,20 @@ class CuentasProveedorWidget(QWidget):
         dlg.exec()
 
     def _mostrar_facturas(self, facturas: list):
+        # Aplicar ordenamiento si hay una columna activa
+        if self._sort_col >= 0:
+            _key_map = {
+                1: lambda f: (f["proveedor_nombre"] or "").lower(),
+                2: lambda f: (f["numero_factura"] or "").lower(),
+                4: lambda f: float(f["monto_total"] or 0),
+                5: lambda f: float(f["monto_pagado"] or 0),
+                6: lambda f: float(f["saldo"] or 0),
+                7: lambda f: str(f["fecha_vencimiento"] or "9999-12-31"),
+            }
+            key_fn = _key_map.get(self._sort_col)
+            if key_fn:
+                facturas = sorted(facturas, key=key_fn, reverse=not self._sort_asc)
+
         self.tabla_facturas.setRowCount(len(facturas))
         hoy = date.today()
         for i, f in enumerate(facturas):
